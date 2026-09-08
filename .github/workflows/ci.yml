@@ -68,7 +68,7 @@ jobs:
           HOST: ${{ secrets.VPS_HOST }}
           REMOTE_USER: ${{ secrets.VPS_USER }}
         run: |
-          if [ -z "$HOST" ]; then echo "Falta el secret VPS_HOST - deploy omitido"; exit 0; fi
+          if [ -z "$HOST" ] || [ -z "$SSH_KEY" ]; then echo "Faltan secrets VPS_* - deploy omitido"; exit 0; fi
           mkdir -p ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/id && chmod 600 ~/.ssh/id
           ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
