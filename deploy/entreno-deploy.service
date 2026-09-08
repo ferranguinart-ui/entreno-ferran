@@ -1,0 +1,10 @@
+# /etc/systemd/system/entreno-deploy.service
+# Lo lanza entreno-deploy.timer. Ver deploy/entreno-deploy.timer.
+[Unit]
+Description=Entreno - auto-deploy (git pull + update)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/srv/entreno/deploy/poll.sh

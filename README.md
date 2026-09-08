@@ -81,17 +81,10 @@ sudo REPO_URL=https://github.com/USUARIO/entreno-ferran.git \
 Instala todo, crea la BD, carga esquema + datos, levanta el servicio y nginx.
 Luego, cuando el DNS A de `entreno` apunte al VPS: `sudo certbot --nginx -d entreno.ferranguinart.com`.
 
-**2. Deploy continuo:** cada `push` a `main` que pase CI hace `rsync` al VPS y
-`deploy/update.sh` (reinstala deps si cambian, reaplica `seed.sql`, reinicia el
-servicio). Requiere 3 *secrets* en el repo de GitHub:
-
-| Secret | Valor |
-|---|---|
-| `VPS_HOST` | IP o host del VPS |
-| `VPS_USER` | usuario SSH (`root`, o un usuario con `sudo` sin contraseña para `deploy/update.sh`) |
-| `VPS_SSH_KEY` | clave privada SSH cuya pública esté en `~/.ssh/authorized_keys` de ese usuario |
-
-Sin esos secrets, el job de deploy se salta y CI sigue pasando.
+**2. Deploy continuo:** el VPS se despliega solo. `entreno-deploy.timer` (systemd)
+sondea `origin/main` cada 2 min; si hay commits nuevos hace `git reset --hard` +
+`deploy/update.sh`. El repo es público, así que el VPS no necesita credenciales
+de GitHub y no hay *secrets* que configurar. GitHub Actions solo corre los tests.
 
 ## Notas de implementación
 

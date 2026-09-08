@@ -1,0 +1,16 @@
+# /etc/systemd/system/entreno-deploy.timer
+#   sudo cp deploy/entreno-deploy.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now entreno-deploy.timer
+#   systemctl list-timers entreno-deploy.timer
+#   journalctl -u entreno-deploy.service -f
+[Unit]
+Description=Sondea GitHub para desplegar Entreno
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+AccuracySec=15s
+
+[Install]
+WantedBy=timers.target

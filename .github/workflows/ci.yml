@@ -1,4 +1,4 @@
-name: CI + Deploy
+name: CI
 
 on:
   push:
@@ -54,40 +54,3 @@ jobs:
         working-directory: backend
         run: pytest
 
-  deploy:
-    needs: test
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    concurrency: deploy-prod
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Deploy al VPS
-        env:
-          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
-          HOST: ${{ secrets.VPS_HOST }}
-          REMOTE_USER: ${{ secrets.VPS_USER }}
-        run: |
-          REMOTE_USER="${REMOTE_USER:-root}"
-          if [ -z "$HOST" ] || [ -z "$SSH_KEY" ]; then
-            echo "Faltan secrets VPS_* - deploy omitido"; exit 0
-          fi
-          echo "destino: $REMOTE_USER@$HOST  ·  secret: $(printf %s "$SSH_KEY" | wc -c) bytes"
-          mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          # el secret es la clave privada en base64 (una línea). Si no, se usa tal cual.
-          if printf %s "$SSH_KEY" | base64 -d > ~/.ssh/id 2>/dev/null && ssh-keygen -y -f ~/.ssh/id >/dev/null 2>&1; then
-            echo "clave: base64 OK"
-          else
-            printf '%s\n' "$SSH_KEY" > ~/.ssh/id
-            echo "clave: texto plano"
-          fi
-          chmod 600 ~/.ssh/id
-          ssh-keygen -y -f ~/.ssh/id >/dev/null || { echo "clave privada ilegible (revisa el secret VPS_SSH_KEY)"; exit 1; }
-          SSHOPTS="-i $HOME/.ssh/id -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=15"
-          ssh $SSHOPTS "$REMOTE_USER@$HOST" 'echo conectado como $(whoami)@$(hostname)'
-          rsync -az --delete \
-            --exclude '.git' --exclude '.github' --exclude 'node_modules' \
-            --exclude 'backend/.venv' --exclude 'backend/.env' \
-            --exclude '__pycache__' --exclude '.pytest_cache' \
-            -e "ssh $SSHOPTS" ./ "$REMOTE_USER@$HOST:/srv/entreno/"
-          ssh $SSHOPTS "$REMOTE_USER@$HOST" 'sudo /srv/entreno/deploy/update.sh'

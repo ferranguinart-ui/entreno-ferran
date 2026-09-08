@@ -87,11 +87,18 @@ sudo ufw enable
 
 ## Actualizar la app
 
+**Automático:** `entreno-deploy.timer` sondea `origin/main` cada 2 min y, si hay
+cambios, hace `git reset --hard` + `deploy/update.sh` (reinstala deps si cambian,
+reaplica `seed.sql`, reinicia el servicio). No hace falta nada más que un `push`.
+Repo público → sin credenciales en el VPS.
+
 ```bash
-cd /srv/entreno && sudo -u entreno git pull
-sudo -u entreno backend/.venv/bin/pip install -r backend/requirements.txt   # si cambió
-sudo systemctl restart entreno
+systemctl list-timers entreno-deploy.timer      # próximo sondeo
+journalctl -u entreno-deploy.service -f          # ver despliegues
+sudo systemctl start entreno-deploy.service      # forzar ahora
 ```
+
+**Manual** (si hiciera falta): `cd /srv/entreno && sudo git reset --hard origin/main && sudo deploy/update.sh`
 
 El service worker es *network-first*: al recargar, el navegador coge la versión
 nueva; la caché solo actúa sin conexión.

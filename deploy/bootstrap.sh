@@ -97,6 +97,12 @@ sleep 1
 systemctl --no-pager --lines=0 status entreno || true
 curl -fsS -o /dev/null "http://127.0.0.1:${PORT}/" && echo "  app responde en :$PORT ✓"
 
+log "Auto-deploy (timer que sondea GitHub cada 2 min)"
+cp "$APP_DIR/deploy/entreno-deploy.service" "$APP_DIR/deploy/entreno-deploy.timer" /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now entreno-deploy.timer
+systemctl list-timers --no-pager entreno-deploy.timer | head -3 || true
+
 log "nginx"
 NGINX_SITE=/etc/nginx/sites-available/${DOMAIN}
 sed -e "s#entreno.ferranguinart.com#${DOMAIN}#g" -e "s#127.0.0.1:8020#127.0.0.1:${PORT}#" \
