@@ -18,3 +18,4 @@ backups/
 
 # SO
 .DS_Store
+deploy/deploy_key.local*
