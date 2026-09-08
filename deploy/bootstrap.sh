@@ -14,6 +14,8 @@
 #   DB_PASSWORD  (opcional) se genera si no se pasa; queda en backend/.env
 #   PORT         (opcional) puerto interno de uvicorn (def. 8020)
 #   RUN_CERTBOT  (opcional) "1" para pedir el certificado ya (requiere DNS ok)
+#   MANAGE_UFW   (opcional) "1" para configurar ufw. Por defecto NO se toca
+#                el firewall (útil en un VPS compartido con otras apps).
 set -euo pipefail
 
 APP_DIR=/srv/entreno
@@ -95,10 +97,14 @@ sed -e "s#entreno.ferranguinart.com#${DOMAIN}#g" -e "s#127.0.0.1:8020#127.0.0.1:
 ln -sf "$NGINX_SITE" "/etc/nginx/sites-enabled/${DOMAIN}"
 nginx -t && systemctl reload nginx
 
-log "Firewall"
-ufw allow OpenSSH >/dev/null 2>&1 || true
-ufw allow 'Nginx Full' >/dev/null 2>&1 || true
-yes | ufw enable >/dev/null 2>&1 || true
+if [ "${MANAGE_UFW:-0}" = "1" ]; then
+  log "Firewall (ufw)"
+  ufw allow OpenSSH >/dev/null 2>&1 || true
+  ufw allow 'Nginx Full' >/dev/null 2>&1 || true
+  yes | ufw enable >/dev/null 2>&1 || true
+else
+  echo "  (ufw sin tocar; exporta MANAGE_UFW=1 si quieres que lo gestione)"
+fi
 
 if [ "${RUN_CERTBOT:-0}" = "1" ]; then
   log "Certbot (HTTPS)"
