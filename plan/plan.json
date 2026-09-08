@@ -1,0 +1,113 @@
+{
+  "_meta": {
+    "fuente": "Plan_Entrenamiento_Ferran.docx",
+    "formato": "tiempo fijo, 40 seg de trabajo por ejercicio",
+    "progresion": "cada ~2 semanas apuntar reps logradas en los 40 seg de cada ejercicio (solo ronda 1, en fresco)",
+    "deload": "cada 6-8 semanas: bajar a 2 rondas por sesión (o quitar un día de fuerza y mantener solo el HIIT)",
+    "rondas": "por defecto 3 en todos los días; seleccionable antes de cada entreno (rango 2-6)",
+    "remate": "se ofrece al acabar la última ronda con un sí/no; plancha pre-marcada que sí, flexiones y curl isométrico pre-marcados que no",
+    "objetivo_peso_kg": 70,
+    "fase": "deficit",
+    "nota": "Este JSON es la versión editable del plan. db/seed.sql debe reflejarlo."
+  },
+  "calentamiento": {
+    "descripcion": "Todos los días, ~2 min, una sola vuelta encadenada",
+    "pasos": [
+      { "nombre": "Jumping jacks",            "trabajo_seg": 30, "musculos": "Cardiovascular general, cuerpo completo" },
+      { "nombre": "Rotación de hombros",      "trabajo_seg": 20, "musculos": "Movilidad de hombro" },
+      { "nombre": "Sentadillas al aire",      "trabajo_seg": 30, "musculos": "Cuádriceps, glúteo (activación)" },
+      { "nombre": "Transición / respiración", "trabajo_seg": 20, "musculos": null }
+    ]
+  },
+  "dias": [
+    {
+      "id": 1,
+      "nombre": "Empuje",
+      "material": "mancuernas",
+      "rondas": 3, "rondas_min": 2, "rondas_max": 6, "rondas_deload": 2,
+      "trabajo_seg": 40, "descanso_ejercicio_seg": 25, "descanso_ronda_seg": 90,
+      "duracion_estimada_min": "16-18",
+      "ejercicios": [
+        { "nombre": "Press de pecho en suelo", "principal": "Pectoral",                   "secundario": "Tríceps, hombro anterior" },
+        { "nombre": "Aperturas en suelo",      "principal": "Pectoral (fibras externas)", "secundario": "Hombro anterior" },
+        { "nombre": "Press militar",           "principal": "Hombro / deltoides",         "secundario": "Tríceps" },
+        { "nombre": "Rompe cráneos en suelo",  "principal": "Tríceps (cabeza larga)",     "secundario": null }
+      ],
+      "remate": [
+        { "nombre": "Flexiones", "trabajo_seg": 40, "rondas": 1, "opcional": true,
+          "principal": "Pectoral, tríceps", "secundario": "Core, hombro", "nota": "Solo si sobra tiempo" }
+      ]
+    },
+    {
+      "id": 2,
+      "nombre": "HIIT + core",
+      "material": "peso corporal",
+      "rondas": 3, "rondas_min": 2, "rondas_max": 6, "rondas_deload": 2,
+      "trabajo_seg": 40, "descanso_ejercicio_seg": 20, "descanso_ronda_seg": 60,
+      "duracion_estimada_min": "16-20",
+      "ejercicios": [
+        { "nombre": "Sentadillas",              "principal": "Cuádriceps, glúteo",     "secundario": "Core" },
+        { "nombre": "Wall sit",                 "principal": "Cuádriceps (isométrico)","secundario": null },
+        { "nombre": "Crunch con peso al pecho", "principal": "Recto abdominal",        "secundario": null },
+        { "nombre": "Lumbares",                 "principal": "Zona lumbar",            "secundario": "Glúteo" }
+      ],
+      "remate": [
+        { "nombre": "Plancha estática", "trabajo_seg": 40, "rondas": 1, "opcional": false,
+          "principal": "Core completo (isométrico)", "secundario": null, "nota": "Sin coste de tiempo extra relevante" }
+      ]
+    },
+    {
+      "id": 3,
+      "nombre": "Tracción",
+      "material": "mancuernas",
+      "rondas": 3, "rondas_min": 2, "rondas_max": 6, "rondas_deload": 2,
+      "trabajo_seg": 40, "descanso_ejercicio_seg": 25, "descanso_ronda_seg": 90,
+      "duracion_estimada_min": "16-18",
+      "ejercicios": [
+        { "nombre": "Remo a una mano",             "principal": "Dorsal ancho",         "secundario": "Bíceps, hombro posterior" },
+        { "nombre": "Peso muerto rumano",          "principal": "Femoral, glúteo",      "secundario": "Zona lumbar" },
+        { "nombre": "Curl bíceps",                 "principal": "Bíceps",               "secundario": "Antebrazo" },
+        { "nombre": "Curl martillo / concentrado", "principal": "Bíceps, braquial",     "secundario": "Antebrazo" }
+      ],
+      "remate": [
+        { "nombre": "Curl isométrico a 90°", "trabajo_seg": 30, "rondas": 1, "opcional": true,
+          "principal": "Bíceps (tiempo bajo tensión)", "secundario": null,
+          "nota": "20-30 seg por brazo. Unilateral: el timer del MVP lo trata como intervalo único" }
+      ]
+    },
+    {
+      "id": 4,
+      "nombre": "Piernas + core",
+      "material": "peso corporal",
+      "rondas": 3, "rondas_min": 2, "rondas_max": 6, "rondas_deload": 2,
+      "trabajo_seg": 40, "descanso_ejercicio_seg": 20, "descanso_ronda_seg": 60,
+      "duracion_estimada_min": "16-20",
+      "ejercicios": [
+        { "nombre": "Sentadillas",              "principal": "Cuádriceps, glúteo",              "secundario": "Core" },
+        { "nombre": "Zancadas alternas",        "principal": "Cuádriceps, glúteo (unilateral)", "secundario": "Equilibrio / core" },
+        { "nombre": "Puente de glúteo",         "principal": "Glúteo",                          "secundario": "Femoral, lumbar" },
+        { "nombre": "Crunch con peso al pecho", "principal": "Recto abdominal",                 "secundario": null }
+      ],
+      "remate": [
+        { "nombre": "Plancha estática", "trabajo_seg": 40, "rondas": 1, "opcional": false,
+          "principal": "Core completo (isométrico)", "secundario": null }
+      ]
+    },
+    {
+      "id": 5,
+      "nombre": "Libre",
+      "material": "variable",
+      "rondas": 3, "rondas_min": 1, "rondas_max": 6, "rondas_deload": 2,
+      "trabajo_seg": 40, "descanso_ejercicio_seg": 20, "descanso_ronda_seg": 60,
+      "duracion_estimada_min": null,
+      "ejercicios": [],
+      "remate": [],
+      "nota": "Día 5 opcional: full body mixto o el bloque corto de la semana. Solo registro manual."
+    }
+  ],
+  "seguimiento": {
+    "cada_semanas": "2-3",
+    "medidas": ["Foto frontal y de perfil (misma luz y hora)", "Cintura con cinta métrica"],
+    "condiciones_estandar_peso": "En ayunas, tras café y baño, primera hora de la mañana"
+  }
+}

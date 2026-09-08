@@ -1,0 +1,20 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Node
+node_modules/
+
+# Secrets / entorno
+.env
+backend/.env
+deploy/*.local
+
+# Backups de la BD
+backups/
+*.dump
+
+# SO
+.DS_Store

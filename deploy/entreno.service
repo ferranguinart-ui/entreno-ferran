@@ -1,0 +1,29 @@
+# /etc/systemd/system/entreno.service
+# Ajusta User/paths si no usas /srv/entreno.
+#   sudo cp deploy/entreno.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now entreno
+#   sudo systemctl status entreno   ·   journalctl -u entreno -f
+
+[Unit]
+Description=Entreno - training tracker (FastAPI)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=entreno
+Group=entreno
+WorkingDirectory=/srv/entreno/backend
+EnvironmentFile=/srv/entreno/backend/.env
+ExecStart=/srv/entreno/backend/.venv/bin/uvicorn app:app --host 127.0.0.1 --port 8020
+Restart=on-failure
+RestartSec=3
+
+# endurecimiento básico
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

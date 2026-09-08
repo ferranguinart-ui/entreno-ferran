@@ -1,0 +1,80 @@
+name: CI + Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: entreno_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/entreno_test
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: postgresql-client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instala deps backend
+        run: pip install -r backend/requirements-dev.txt
+
+      - name: Sintaxis backend
+        run: python -m py_compile backend/app.py backend/db.py
+
+      - name: Sintaxis frontend (ES modules)
+        run: |
+          for f in frontend/js/*.js frontend/sw.js; do
+            [ "$(basename "$f")" = "timer.test.mjs" ] && continue
+            cp "$f" "/tmp/$(basename "$f" .js).mjs"
+            node --check "/tmp/$(basename "$f" .js).mjs"
+          done
+
+      - name: Test motor de timer
+        run: node --test frontend/js/timer.test.mjs
+
+      - name: SQL + API (pytest sobre Postgres real)
+        working-directory: backend
+        run: pytest
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    concurrency: deploy-prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy al VPS
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          HOST: ${{ secrets.VPS_HOST }}
+          REMOTE_USER: ${{ secrets.VPS_USER }}
+        run: |
+          if [ -z "$HOST" ]; then echo "Falta el secret VPS_HOST - deploy omitido"; exit 0; fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id && chmod 600 ~/.ssh/id
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          rsync -az --delete \
+            --exclude '.git' --exclude '.github' --exclude 'node_modules' \
+            --exclude 'backend/.venv' --exclude 'backend/.env' \
+            --exclude '__pycache__' --exclude '.pytest_cache' \
+            -e "ssh -i ~/.ssh/id" ./ "$REMOTE_USER@$HOST:/srv/entreno/"
+          ssh -i ~/.ssh/id "$REMOTE_USER@$HOST" 'sudo /srv/entreno/deploy/update.sh'

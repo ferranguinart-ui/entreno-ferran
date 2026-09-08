@@ -1,0 +1,9 @@
+{
+  "name": "entreno-frontend",
+  "private": true,
+  "type": "module",
+  "description": "Frontend vanilla, sin build. package.json solo para que Node trate los .js como ES modules al testear.",
+  "scripts": {
+    "test": "node js/timer.test.mjs"
+  }
+}
