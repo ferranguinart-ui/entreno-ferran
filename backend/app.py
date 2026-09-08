@@ -225,7 +225,7 @@ async def put_logs(sid: str, body: LogsIn, user: str = Depends(current_user)):
                 on conflict (session_id, exercise_id, round_number)
                 do update set reps = excluded.reps
                 """,
-                sid, it.exercise_id, it.round_number, it.reps,
+                (sid, it.exercise_id, it.round_number, it.reps),
             )
     return {"ok": True}
 

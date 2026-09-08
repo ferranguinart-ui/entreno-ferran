@@ -17,7 +17,12 @@ BACKEND = ROOT / "backend"
 
 
 def _psql(db_url: str, *args: str) -> None:
-    subprocess.run(["psql", db_url, "-v", "ON_ERROR_STOP=1", "-q", *args], check=True)
+    r = subprocess.run(
+        ["psql", db_url, "-v", "ON_ERROR_STOP=1", "-q", *args],
+        capture_output=True, text=True,
+    )
+    if r.returncode:
+        raise RuntimeError(f"psql {args} falló:\n{r.stdout}\n{r.stderr}")
 
 
 @pytest.fixture(scope="session")
