@@ -34,14 +34,19 @@ apt-get install -y -qq postgresql nginx python3-venv python3-pip git curl \
   certbot python3-certbot-nginx ufw
 
 log "Usuario de servicio $APP_USER"
-id "$APP_USER" &>/dev/null || useradd --system --create-home --home-dir "$APP_DIR" --shell /usr/sbin/nologin "$APP_USER"
+# --no-create-home: si no, useradd rellena $APP_DIR con el skel y el clone falla.
+id "$APP_USER" &>/dev/null || useradd --system --home-dir "$APP_DIR" --no-create-home --shell /usr/sbin/nologin "$APP_USER"
 mkdir -p "$APP_DIR"
 
 log "Código en $APP_DIR"
+git config --global --add safe.directory "$APP_DIR" 2>/dev/null || true
 if [ -d "$APP_DIR/.git" ]; then
-  git -C "$APP_DIR" pull --ff-only || true
+  git -C "$APP_DIR" fetch -q origin && git -C "$APP_DIR" reset -q --hard origin/main
 elif [ -n "${REPO_URL:-}" ]; then
-  git clone "$REPO_URL" "$APP_DIR"
+  tmp="$(mktemp -d)"
+  git clone -q "$REPO_URL" "$tmp/repo"
+  cp -a "$tmp/repo/." "$APP_DIR/"
+  rm -rf "$tmp"
 elif [ -f "$APP_DIR/backend/app.py" ]; then
   echo "  (código ya presente sin git, ok)"
 else
