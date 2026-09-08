@@ -68,13 +68,19 @@ jobs:
           HOST: ${{ secrets.VPS_HOST }}
           REMOTE_USER: ${{ secrets.VPS_USER }}
         run: |
-          if [ -z "$HOST" ] || [ -z "$SSH_KEY" ]; then echo "Faltan secrets VPS_* - deploy omitido"; exit 0; fi
-          mkdir -p ~/.ssh
+          REMOTE_USER="${REMOTE_USER:-root}"
+          if [ -z "$HOST" ] || [ -z "$SSH_KEY" ]; then
+            echo "Faltan secrets VPS_* - deploy omitido"; exit 0
+          fi
+          echo "destino: $REMOTE_USER@$HOST  ·  clave: $(printf %s "$SSH_KEY" | wc -c) bytes"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/id && chmod 600 ~/.ssh/id
-          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keygen -y -f ~/.ssh/id >/dev/null || { echo "clave privada mal formada (revisa el secret VPS_SSH_KEY)"; exit 1; }
+          SSHOPTS="-i $HOME/.ssh/id -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=15"
+          ssh $SSHOPTS "$REMOTE_USER@$HOST" 'echo conectado como $(whoami)@$(hostname)'
           rsync -az --delete \
             --exclude '.git' --exclude '.github' --exclude 'node_modules' \
             --exclude 'backend/.venv' --exclude 'backend/.env' \
             --exclude '__pycache__' --exclude '.pytest_cache' \
-            -e "ssh -i ~/.ssh/id" ./ "$REMOTE_USER@$HOST:/srv/entreno/"
-          ssh -i ~/.ssh/id "$REMOTE_USER@$HOST" 'sudo /srv/entreno/deploy/update.sh'
+            -e "ssh $SSHOPTS" ./ "$REMOTE_USER@$HOST:/srv/entreno/"
+          ssh $SSHOPTS "$REMOTE_USER@$HOST" 'sudo /srv/entreno/deploy/update.sh'
