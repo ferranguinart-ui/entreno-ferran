@@ -1,6 +1,6 @@
 // Service worker mínimo: cachea el shell para que la app arranque sin red.
 // Las llamadas /api van siempre a red (la cola offline vive en api.js).
-const CACHE = "entreno-v2";
+const CACHE = "entreno-v3";
 const SHELL = [
   "/",
   "/index.html",
