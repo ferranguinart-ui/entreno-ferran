@@ -12,7 +12,10 @@ _pool: AsyncConnectionPool | None = None
 async def open_pool() -> None:
     global _pool
     dsn = os.environ["DATABASE_URL"]
-    _pool = AsyncConnectionPool(dsn, min_size=1, max_size=5, kwargs={"row_factory": dict_row})
+    _pool = AsyncConnectionPool(
+        dsn, min_size=1, max_size=5, open=False, kwargs={"row_factory": dict_row}
+    )
+    await _pool.open()
     await _pool.wait()
 
 
