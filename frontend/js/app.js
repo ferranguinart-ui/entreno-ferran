@@ -120,8 +120,8 @@ function viewHome() {
         <button class="ghost" id="out">Salir</button>
       </header>
       ${pend ? `<div class="note warn">${pend} guardado(s) sin subir — se enviarán al reconectar</div>` : ""}
-      <div class="col gap">${cards}</div>
-      <div class="col gap mt">
+      <div class="day-list">${cards}</div>
+      <div class="nav-grid mt">
         <a class="btn" href="#/dashboard">Dashboard</a>
         <a class="btn" href="#/manual">Registrar sesión manual</a>
         <a class="btn" href="#/measure">Medidas corporales</a>
@@ -476,24 +476,24 @@ async function viewDashboard() {
     <div class="pane dash">
       <header class="row between"><a class="ghost" href="#/">‹ Atrás</a><h2>Dashboard</h2><span></span></header>
       ${hasChart ? "" : `<div class="note warn">Sin conexión para cargar los gráficos. Reintenta con red.</div>`}
-      <section class="card">
+      <section class="card sec-weight">
         <h3>Peso <span class="muted small">objetivo ${d.goal_weight_kg} kg</span></h3>
         <div class="cw"><canvas id="cWeight"></canvas></div>
         <div class="muted small">Línea gruesa = media móvil de 7 registros. ▲ = fuera de condiciones estándar.</div>
       </section>
-      <section class="card">
+      <section class="card sec-waist">
         <h3>Cintura</h3>
         <div class="cw"><canvas id="cWaist"></canvas></div>
         <div class="muted small">Línea gruesa = media móvil de 7 registros.</div>
       </section>
-      <section class="card">
+      <section class="card sec-consistency">
         <h3>Consistencia <span class="muted small">objetivo 4/semana</span></h3>
         <div id="heat" class="heat"></div>
         <div class="muted small">Cada fila una semana. Verde = sesión · Morado = deload.</div>
       </section>
-      <section class="card">
+      <section class="card sec-strength">
         <h3>Progresión de fuerza <span class="muted small">reps / 40 s</span></h3>
-        <div id="strength" class="col gap"></div>
+        <div id="strength" class="subs"></div>
         <div class="muted small">▲ = sesión de deload.</div>
       </section>
     </div>`);

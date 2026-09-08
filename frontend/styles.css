@@ -1,42 +1,54 @@
+/* ============================================================
+   Entreno — mobile-first, con breakpoints en 640px (tablet) y
+   960px (escritorio). En escritorio la app se centra en una
+   columna cómoda; el dashboard se ensancha a 2 columnas.
+   ============================================================ */
 :root {
   --bg: #0f1115;
+  --bg-soft: #14171d;
   --card: #1a1d24;
   --card2: #22262f;
+  --line: #2a2e38;
   --fg: #e9ecf1;
   --muted: #9aa3b2;
   --accent: #4f8cff;
+  --ok: #3fae6b;
   --work: #1e7d4f;
   --rest: #2b5c9e;
   --warm: #9a6b1e;
   --remate: #6b3fa0;
   --err: #ff6b6b;
   --radius: 14px;
+  --pane-w: 460px;
+  accent-color: var(--accent);
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; }
+html, body { margin: 0; min-height: 100%; }
 body {
   background: var(--bg);
   color: var(--fg);
-  font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   -webkit-tap-highlight-color: transparent;
 }
-#app { min-height: 100%; }
+#app { min-height: 100dvh; }
 #app.loading { display: grid; place-items: center; color: var(--muted); }
 
+/* -------------------- layout base (móvil) -------------------- */
 .pane {
-  max-width: 560px;
+  width: 100%;
+  max-width: var(--pane-w);
   margin: 0 auto;
-  padding: 20px 16px calc(28px + env(safe-area-inset-bottom));
+  padding: 20px 16px calc(32px + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   gap: 14px;
 }
-.pane.center { min-height: 100vh; justify-content: center; }
+.pane.center { min-height: 100dvh; justify-content: center; }
 
-h1, h2 { margin: 0; }
-.brand { font-size: 26px; letter-spacing: 0.5px; }
-h2 { font-size: 18px; }
+h1, h2, h3 { margin: 0; }
+.brand { font-size: 26px; font-weight: 800; letter-spacing: 0.3px; }
+h2 { font-size: 18px; font-weight: 700; }
 .muted { color: var(--muted); }
 .small { font-size: 13px; }
 .err { color: var(--err); min-height: 1em; margin: 4px 0 0; }
@@ -47,36 +59,36 @@ h2 { font-size: 18px; }
 .col { display: flex; flex-direction: column; }
 .col.gap, .gap { gap: 10px; }
 
+/* -------------------- superficies -------------------- */
 .card {
   background: var(--card);
-  border: 1px solid #2a2e38;
+  border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 14px;
   text-decoration: none;
   color: inherit;
 }
-.card.day:active { background: var(--card2); }
 
-.pill, .note.warn {
+.pill {
   font-size: 12px;
-  background: #2a2e38;
+  background: var(--card2);
   color: var(--muted);
-  padding: 3px 8px;
+  padding: 3px 9px;
   border-radius: 999px;
   white-space: nowrap;
 }
 .note.warn {
   border-radius: var(--radius);
   padding: 10px 12px;
+  font-size: 13px;
   color: #ffce88;
   background: #3a2c14;
+  border: 1px solid #5a441f;
 }
 
+/* -------------------- formularios -------------------- */
 label { color: var(--muted); font-size: 14px; }
-input, select, button {
-  font: inherit;
-  color: var(--fg);
-}
+input, select, button { font: inherit; color: var(--fg); }
 input, select {
   background: var(--card2);
   border: 1px solid #333844;
@@ -84,6 +96,7 @@ input, select {
   padding: 12px;
   width: 100%;
 }
+input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 input[type="checkbox"] { width: auto; }
 
 button {
@@ -92,8 +105,10 @@ button {
   border-radius: 10px;
   padding: 12px 16px;
   background: var(--card2);
+  transition: background .15s, transform .05s;
 }
-button:disabled { opacity: 0.4; }
+button:disabled { opacity: 0.4; cursor: default; }
+button:active:not(:disabled) { transform: translateY(1px); }
 .primary { background: var(--accent); color: #fff; font-weight: 600; }
 .ghost { background: transparent; color: var(--muted); padding: 8px; }
 .btn {
@@ -102,45 +117,61 @@ button:disabled { opacity: 0.4; }
   text-decoration: none;
   color: var(--fg);
   background: var(--card);
-  border: 1px solid #2a2e38;
+  border: 1px solid var(--line);
   border-radius: 10px;
   padding: 14px;
+  transition: background .15s, border-color .15s;
 }
 .big-btn { width: 100%; padding: 16px; font-size: 17px; margin-top: 6px; }
 .big { font-size: 22px; font-weight: 700; }
 
+@media (hover: hover) {
+  .card.day:hover, .btn:hover { background: var(--card2); border-color: #3a3f4b; }
+  .primary:hover { background: #5b96ff; }
+  .ghost:hover { color: var(--fg); }
+}
+.card.day:active { background: var(--card2); }
+
+/* -------------------- home -------------------- */
+.day-list { display: flex; flex-direction: column; gap: 10px; }
+.day-list .card.day { display: flex; flex-direction: column; gap: 4px; }
+.nav-grid { display: flex; flex-direction: column; gap: 10px; }
+
+/* -------------------- setup -------------------- */
 .stepper { display: flex; align-items: center; gap: 18px; }
 .stepper button { width: 52px; height: 52px; font-size: 24px; }
 .stepper .big { min-width: 40px; text-align: center; }
 
+/* -------------------- tablas -------------------- */
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #262a33; }
 th { color: var(--muted); font-weight: 500; }
 
-/* ---------------- run screen ---------------- */
+/* -------------------- runner -------------------- */
 .run {
-  min-height: 100vh;
+  min-height: 100dvh;
   justify-content: center;
+  align-items: center;
   text-align: center;
   position: relative;
   transition: background 0.3s;
 }
-.run[data-kind="work"] { background: linear-gradient(180deg, #0f1115, var(--work)); }
-.run[data-kind="rest"] { background: linear-gradient(180deg, #0f1115, var(--rest)); }
-.run[data-kind="warmup"] { background: linear-gradient(180deg, #0f1115, var(--warm)); }
-.run[data-kind="work"][data-phase] { }
+.run > *:not(.overlay) { width: 100%; max-width: 560px; }
+.run[data-kind="work"]   { background: linear-gradient(180deg, var(--bg), var(--work)); }
+.run[data-kind="rest"]   { background: linear-gradient(180deg, var(--bg), var(--rest)); }
+.run[data-kind="warmup"] { background: linear-gradient(180deg, var(--bg), var(--warm)); }
 .run .run-top { display: flex; justify-content: space-between; font-size: 15px; color: #dfe5ef; }
 .phase { text-transform: uppercase; letter-spacing: 1px; }
 .digits {
-  font-size: clamp(76px, 26vw, 140px);
+  font-size: clamp(84px, 30vw, 168px);
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   line-height: 1;
   margin: 8px 0;
 }
-.exname { font-size: 24px; font-weight: 700; }
+.exname { font-size: clamp(22px, 6vw, 30px); font-weight: 700; }
 .next { color: #cfd6e2; font-size: 14px; margin-top: 6px; }
-.bar { height: 6px; background: #ffffff22; border-radius: 999px; overflow: hidden; margin: 14px 0; }
+.bar { height: 6px; background: #ffffff22; border-radius: 999px; overflow: hidden; margin: 16px 0; }
 .fill { height: 100%; width: 0; background: #fff; transition: width 0.3s; }
 .run-controls { display: flex; gap: 10px; }
 .run-controls button { flex: 1; padding: 18px 0; font-size: 20px; }
@@ -154,9 +185,9 @@ th { color: var(--muted); font-weight: 500; }
   padding: 20px;
 }
 .overlay.show { display: grid; }
-.overlay .card { width: 100%; max-width: 420px; }
-.overlay .big-btn { max-width: 420px; }
+.overlay .card, .overlay .big-btn { width: 100%; max-width: 420px; }
 
+/* -------------------- toast -------------------- */
 #toast {
   position: fixed;
   left: 50%;
@@ -172,28 +203,69 @@ th { color: var(--muted); font-weight: 500; }
   pointer-events: none;
   max-width: 90vw;
   text-align: center;
+  z-index: 10;
 }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
-/* ---------------- dashboard ---------------- */
+/* -------------------- dashboard -------------------- */
 .dash section { display: flex; flex-direction: column; gap: 10px; }
-.dash h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.dash h3 { font-size: 15px; font-weight: 600; }
 .dash h3 .small { font-weight: 400; }
 .cw { position: relative; height: 220px; }
 .cw.sm { height: 170px; }
+.subs { display: flex; flex-direction: column; gap: 12px; }
 .subchart { display: flex; flex-direction: column; gap: 6px; }
 
 .heat { display: flex; flex-direction: column; gap: 3px; }
 .hrow { display: flex; align-items: center; gap: 8px; }
 .hlabel { color: var(--muted); font-size: 11px; width: 38px; text-align: right; flex: none; }
-.hcells { display: grid; grid-template-columns: repeat(7, 18px); gap: 3px; }
-.hc {
-  width: 18px;
-  height: 18px;
-  border-radius: 3px;
-  background: #ffffff10;
-}
+.hcells { display: grid; grid-template-columns: repeat(7, 20px); gap: 3px; }
+.hc { aspect-ratio: 1; border-radius: 3px; background: #ffffff10; }
 .hc.on { background: var(--work); }
 .hc.dl { background: var(--remate); }
 .hcount { color: var(--muted); font-size: 11px; margin-left: 4px; flex: none; }
-.hcount.ok { color: #3fae6b; }
+.hcount.ok { color: var(--ok); }
+
+/* ============================================================
+   TABLET  ≥ 640px
+   ============================================================ */
+@media (min-width: 640px) {
+  body { font-size: 16px; }
+  .pane { max-width: 560px; padding-top: 28px; gap: 16px; }
+  .brand { font-size: 28px; }
+
+  .nav-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .nav-grid .btn { padding: 18px 14px; }
+
+  .cw { height: 240px; }
+}
+
+/* ============================================================
+   ESCRITORIO  ≥ 960px
+   ============================================================ */
+@media (min-width: 960px) {
+  .pane { max-width: 480px; padding-top: 44px; }
+  .pane.center { padding-top: 0; }
+
+  /* dashboard ancho, en rejilla */
+  .pane.dash {
+    display: grid;
+    max-width: 1080px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 18px;
+    padding-top: 32px;
+  }
+  .pane.dash > header { grid-column: 1 / -1; }
+  .pane.dash > .sec-consistency,
+  .pane.dash > .sec-strength { grid-column: 1 / -1; }
+
+  .dash .subs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .cw { height: 260px; }
+  .cw.sm { height: 190px; }
+  .hcells { grid-template-columns: repeat(7, 26px); }
+}
+
+@media (min-width: 1280px) {
+  .pane.dash { max-width: 1180px; }
+}
