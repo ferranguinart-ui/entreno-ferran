@@ -22,7 +22,8 @@ APP_DIR=/srv/entreno
 APP_USER=entreno
 PORT="${PORT:-8020}"
 : "${DOMAIN:?define DOMAIN}"
-: "${APP_PIN:?define APP_PIN}"
+# APP_PIN es opcional: si no se pasa, la app arranca sin usuario y se crea
+# más tarde añadiendo INITIAL_PIN a backend/.env y reiniciando el servicio.
 
 log() { printf '\n\033[1;36m▶ %s\033[0m\n' "$*"; }
 
@@ -68,14 +69,15 @@ if [ -f "$ENV_FILE" ]; then
   echo "  (ya existe, no se toca — edítalo a mano si hace falta)"
 else
   install -o "$APP_USER" -g "$APP_USER" -m 600 /dev/null "$ENV_FILE"
-  cat > "$ENV_FILE" <<EOF
-DATABASE_URL=${DB_URL}
-SESSION_SECRET=$(openssl rand -hex 32)
-INITIAL_PIN=${APP_PIN}
-COOKIE_SECURE=1
-EOF
+  {
+    echo "DATABASE_URL=${DB_URL}"
+    echo "SESSION_SECRET=$(openssl rand -hex 32)"
+    [ -n "${APP_PIN:-}" ] && echo "INITIAL_PIN=${APP_PIN}"
+    echo "COOKIE_SECURE=1"
+  } > "$ENV_FILE"
   chown "$APP_USER:$APP_USER" "$ENV_FILE"
   echo "  contraseña de la BD: ${DB_PASSWORD}"
+  [ -z "${APP_PIN:-}" ] && echo "  (sin PIN aún: añade INITIAL_PIN a $ENV_FILE y reinicia)"
 fi
 
 log "Esquema + datos semilla"
@@ -115,4 +117,4 @@ else
   echo "  sudo certbot --nginx -d $DOMAIN"
 fi
 
-log "Listo. http://$DOMAIN  (PIN inicial: $APP_PIN)"
+log "Listo. http://$DOMAIN  (PIN inicial: ${APP_PIN:-pendiente de configurar})"
