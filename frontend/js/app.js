@@ -5,7 +5,10 @@ const app = document.getElementById("app");
 const state = { boot: null, run: null, engine: null };
 
 const todayISO = () => new Date().toLocaleDateString("sv-SE"); // YYYY-MM-DD local
-const h = (html) => { app.innerHTML = html; };
+const h = (html) => {
+  app.classList.remove("loading");
+  app.innerHTML = html;
+};
 const esc = (s) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const fmt = (sec) => {
