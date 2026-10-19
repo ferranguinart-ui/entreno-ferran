@@ -10,6 +10,9 @@ const h = (html) => {
   app.classList.remove("loading");
   app.innerHTML = html;
 };
+app.addEventListener("animationend", (e) => {
+  if (e.target.parentElement === app) app.classList.remove("entering");
+});
 const esc = (s) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const fmt = (sec) => {
@@ -43,6 +46,32 @@ const dayById = (id) => state.boot.days.find((d) => d.id === +id);
 const warmupExercises = () => (dayById(0)?.exercises || []).filter((e) => e.block === "warmup");
 const mainExercises = (day) => day.exercises.filter((e) => e.block === "main");
 const remateExercises = (day) => day.exercises.filter((e) => e.block === "remate");
+
+// Iconos de línea (Lucide, ISC): mismo trazo en toda la app.
+const ico = (body) =>
+  `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+const SPEAKER = '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>';
+const ICON = {
+  back: ico('<polygon points="19 20 9 12 19 4 19 20"/><line x1="5" x2="5" y1="19" y2="5"/>'),
+  skip: ico('<polygon points="5 4 15 12 5 20 5 4"/><line x1="19" x2="19" y1="5" y2="19"/>'),
+  soundOn: ico(SPEAKER + '<path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>'),
+  soundOff: ico(SPEAKER + '<line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/>'),
+  chevronLeft: ico('<path d="m15 18-6-6 6-6"/>'),
+  minus: ico('<path d="M5 12h14"/>'),
+  plus: ico('<path d="M5 12h14"/><path d="M12 5v14"/>'),
+};
+
+/** Cabecera común: atrás de cristal (opcional) + título centrado. */
+const topBar = (title, back = "#/") => `
+  <header class="top">
+    ${back ? `<a class="back glass" href="${back}" aria-label="Atrás">${ICON.chevronLeft}</a>` : "<span></span>"}
+    <h2>${title}</h2><span></span>
+  </header>`;
+
+/** Fila con interruptor (mismo componente que la autopausa). */
+const switchRow = (label, attrs = "") =>
+  `<label class="switch-row"><span>${label}</span><input type="checkbox" role="switch" class="switch" ${attrs} /></label>`;
+
 
 // ------------------------------- router --------------------------------
 const routes = [
@@ -78,6 +107,9 @@ async function router() {
     state.charts.forEach((c) => c.destroy());
     state.charts = null;
   }
+  // La animación de entrada solo al cambiar de ruta, no en cada re-render
+  // de la misma vista (stepper de rondas, guardar medida...).
+  app.classList.add("entering");
   for (const [re, view] of routes) {
     const m = hash.match(re);
     if (m) return view(...m.slice(1));
@@ -91,7 +123,7 @@ function viewLogin() {
   h(`
     <div class="pane center">
       <h1 class="brand">Entreno</h1>
-      <form id="f" class="card col">
+      <form id="f" class="card col gap">
         <label>PIN</label>
         <input id="pin" type="password" inputmode="numeric" autocomplete="off" autofocus />
         <button class="primary">Entrar</button>
@@ -184,17 +216,16 @@ function viewSetup(dayId) {
     const shown = deload ? day.rounds_deload : rounds;
     h(`
       <div class="pane">
-        <header class="row between"><a class="ghost" href="#/">‹ Atrás</a>
-          <h2>Día ${day.id} — ${esc(day.name)}</h2><span></span></header>
+        ${topBar(`Día ${day.id} — ${esc(day.name)}`)}
         <div class="card col gap">
           <div class="muted small">${esc(day.focus || "")} · ${day.work_sec}s / ${day.rest_ex_sec}s / ${day.rest_round_sec}s</div>
           <label>Rondas</label>
           <div class="stepper">
-            <button id="minus" ${deload ? "disabled" : ""}>−</button>
+            <button id="minus" class="glass" aria-label="Menos rondas" ${deload ? "disabled" : ""}>${ICON.minus}</button>
             <span class="big">${shown}</span>
-            <button id="plus" ${deload ? "disabled" : ""}>+</button>
+            <button id="plus" class="glass" aria-label="Más rondas" ${deload ? "disabled" : ""}>${ICON.plus}</button>
           </div>
-          <label class="row gap"><input type="checkbox" id="deload" ${deload ? "checked" : ""}/> Semana de deload (${day.rounds_deload} rondas)</label>
+          ${switchRow(`Semana de deload (${day.rounds_deload} rondas)`, `id="deload" ${deload ? "checked" : ""}`)}
         </div>
         <div class="card col gap ap">
           <label class="switch-row">
@@ -239,16 +270,6 @@ function viewSetup(dayId) {
 }
 
 // ------------------------------- run -----------------------------------
-// Iconos de línea (Lucide, ISC): mismo trazo en todos los botones del runner.
-const ico = (body) =>
-  `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
-const SPEAKER = '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>';
-const ICON = {
-  back: ico('<polygon points="19 20 9 12 19 4 19 20"/><line x1="5" x2="5" y1="19" y2="5"/>'),
-  skip: ico('<polygon points="5 4 15 12 5 20 5 4"/><line x1="19" x2="19" y1="5" y2="19"/>'),
-  soundOn: ico(SPEAKER + '<path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>'),
-  soundOff: ico(SPEAKER + '<line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/>'),
-};
 const RING_C = 2 * Math.PI * 54; // circunferencia del anillo (r=54 en un viewBox de 120)
 
 /** Reinicia una animación CSS de un solo uso (quitar clase, reflow, poner). */
@@ -405,9 +426,7 @@ function viewRun() {
         ${rem
           .map(
             (e) =>
-              `<label class="row gap"><input type="checkbox" value="${e.id}" ${
-                e.is_optional ? "" : "checked"
-              }/> ${esc(e.name)} · ${e.work_sec ?? day.work_sec}s</label>`
+              switchRow(`${esc(e.name)} · ${e.work_sec ?? day.work_sec}s`, `value="${e.id}" ${e.is_optional ? "" : "checked"}`)
           )
           .join("")}
         <button class="primary" id="remgo">Continuar</button>
@@ -467,7 +486,7 @@ async function viewLog() {
 
   h(`
     <div class="pane">
-      <header class="row between"><span></span><h2>Registrar — Día ${day.id}</h2><span></span></header>
+      ${topBar(`Registrar — Día ${day.id}`, null)}
       <div class="muted small">${r.date} · ${r.rounds} rondas${r.isDeload ? " · deload" : ""}${
     r.durationSec ? " · " + fmt(r.durationSec) : ""
   } · reps de la ronda 1</div>
@@ -524,12 +543,12 @@ function viewManual() {
     .join("");
   h(`
     <div class="pane">
-      <header class="row between"><a class="ghost" href="#/">‹ Atrás</a><h2>Sesión manual</h2><span></span></header>
+      ${topBar("Sesión manual")}
       <div class="card col gap">
         <label>Día</label><select id="day">${opts}</select>
         <label>Fecha</label><input id="date" type="date" value="${todayISO()}" />
         <label>Rondas</label><input id="rounds" type="number" min="1" max="6" value="3" />
-        <label class="row gap"><input type="checkbox" id="deload" /> Deload</label>
+        ${switchRow("Deload", 'id="deload"')}
       </div>
       <button class="primary big-btn" id="go">Continuar a registro</button>
     </div>`);
@@ -567,18 +586,18 @@ async function viewMeasure() {
     .join("");
   h(`
     <div class="pane">
-      <header class="row between"><a class="ghost" href="#/">‹ Atrás</a><h2>Medidas</h2><span></span></header>
+      ${topBar("Medidas")}
       <div class="card col gap">
         <label>Fecha</label><input id="date" type="date" value="${todayISO()}" />
         <label>Peso (kg)</label><input id="w" type="number" inputmode="decimal" step="0.1" />
         <label>Cintura (cm)</label><input id="waist" type="number" inputmode="decimal" step="0.1" />
-        <label class="row gap"><input type="checkbox" id="std" checked /> Condiciones estándar</label>
+        ${switchRow("Condiciones estándar", 'id="std" checked')}
         <div class="muted small">${esc(reminder)}</div>
         <label>Nota</label><input id="note" type="text" placeholder="opcional" />
       </div>
       <button class="primary big-btn" id="go">Guardar</button>
-      <table class="mt"><thead><tr><th>Fecha</th><th>Peso</th><th>Cintura</th><th></th></tr></thead>
-        <tbody>${recent || `<tr><td colspan="4" class="muted">Sin registros</td></tr>`}</tbody></table>
+      <div class="card table-card mt"><table><thead><tr><th>Fecha</th><th>Peso</th><th>Cintura</th><th></th></tr></thead>
+        <tbody>${recent || `<tr><td colspan="4" class="muted">Sin registros</td></tr>`}</tbody></table></div>
     </div>`);
   document.getElementById("go").onclick = async () => {
     const w = document.getElementById("w").value;
@@ -602,7 +621,7 @@ async function viewHistory() {
   try { s = await api.sessions(50); } catch (_) {}
   h(`
     <div class="pane">
-      <header class="row between"><a class="ghost" href="#/">‹ Atrás</a><h2>Historial</h2><span></span></header>
+      ${topBar("Historial")}
       <div class="col gap mt">
         ${
           s.length
@@ -633,7 +652,7 @@ async function viewDashboard() {
   const hasChart = typeof window.Chart === "function";
   h(`
     <div class="pane dash">
-      <header class="row between"><a class="ghost" href="#/">‹ Atrás</a><h2>Dashboard</h2><span></span></header>
+      ${topBar("Dashboard")}
       ${hasChart ? "" : `<div class="note warn">Sin conexión para cargar los gráficos. Reintenta con red.</div>`}
       <section class="card sec-weight">
         <h3>Peso <span class="muted small">objetivo ${d.goal_weight_kg} kg</span></h3>

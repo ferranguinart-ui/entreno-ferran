@@ -19,6 +19,7 @@
   --remate: #6b3fa0;
   --err: #ff6b6b;
   --radius: 14px;
+  --radius-lg: 18px;
   --pane-w: 460px;
   accent-color: var(--accent);
 
@@ -28,6 +29,7 @@
   --c-rest: #4d9bff;
   --c-warm: #ffb547;
   --c-ink: #08110c;          /* texto sobre color de fase */
+  --phase: var(--c-work);    /* acento fuera del runner (sin depender de @property) */
   --glass: #ffffff14;
   --glass-line: #ffffff1f;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
@@ -81,21 +83,41 @@ h2 { font-size: 18px; font-weight: 700; }
 .col { display: flex; flex-direction: column; }
 .col.gap, .gap { gap: 10px; }
 
-/* -------------------- superficies -------------------- */
+/* -------------------- superficies --------------------
+   Mismo lenguaje que el runner: cristal sobre un fondo de luz suave,
+   acento = --phase (verde fuera del runner), curvas y duraciones comunes. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(60% 40% at 15% 0%, color-mix(in srgb, var(--c-work) 14%, transparent), transparent 70%),
+    radial-gradient(50% 35% at 100% 15%, color-mix(in srgb, var(--c-rest) 12%, transparent), transparent 70%);
+}
+#app.entering > .pane:not(.run) { animation: enter var(--dur) var(--ease-out); }
+
 .card {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 14px;
+  background: color-mix(in srgb, var(--card) 78%, transparent);
+  border: 1px solid var(--glass-line);
+  border-radius: var(--radius-lg);
+  padding: 16px;
   text-decoration: none;
   color: inherit;
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  box-shadow: inset 0 1px 0 #ffffff0d;
 }
+a.card { transition: background var(--dur-fast), border-color var(--dur-fast), transform var(--dur-fast) var(--ease-out); }
+a.card:active { transform: scale(0.985); }
 
 .pill {
   font-size: 12px;
-  background: var(--card2);
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
   color: var(--muted);
-  padding: 3px 9px;
+  padding: 3px 10px;
   border-radius: 999px;
   white-space: nowrap;
 }
@@ -103,56 +125,97 @@ h2 { font-size: 18px; font-weight: 700; }
   border-radius: var(--radius);
   padding: 10px 12px;
   font-size: 13px;
-  color: #ffce88;
-  background: #3a2c14;
-  border: 1px solid #5a441f;
+  color: var(--c-warm);
+  background: color-mix(in srgb, var(--c-warm) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c-warm) 35%, transparent);
 }
+
+/* Cabecera común: botón atrás de cristal + título centrado. */
+.top { display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; gap: 8px; }
+.top h2 { text-align: center; }
+.back {
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  color: var(--fg);
+  text-decoration: none;
+}
+.back .ico { width: 22px; height: 22px; }
 
 /* -------------------- formularios -------------------- */
 label { color: var(--muted); font-size: 14px; }
 input, select, button { font: inherit; color: var(--fg); }
 input, select {
-  background: var(--card2);
-  border: 1px solid #333844;
-  border-radius: 10px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  border-radius: 12px;
   padding: 12px;
   width: 100%;
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
 }
-input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+select option { background: var(--card); }
+input:focus, select:focus {
+  outline: none;
+  border-color: var(--c-work);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-work) 30%, transparent);
+}
 input[type="checkbox"] { width: auto; }
+input.switch:focus { box-shadow: none; }
+input[type="date"] { color-scheme: dark; }
 
 button {
   cursor: pointer;
   border: 0;
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 12px 16px;
-  background: var(--card2);
-  transition: background .15s, transform .05s;
+  background: var(--glass);
+  transition: background var(--dur-fast), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur);
 }
 button:disabled { opacity: 0.4; cursor: default; }
-button:active:not(:disabled) { transform: translateY(1px); }
-.primary { background: var(--accent); color: #fff; font-weight: 600; }
+button:active:not(:disabled) { transform: scale(0.97); }
+/* Botón principal = el del runner: color de fase, texto oscuro, brillo. */
+.primary {
+  background: var(--phase);
+  color: var(--c-ink);
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  box-shadow: 0 0 18px -4px color-mix(in srgb, var(--phase) 70%, transparent);
+}
 .ghost { background: transparent; color: var(--muted); padding: 8px; }
 .btn {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
   text-align: center;
   text-decoration: none;
   color: var(--fg);
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  border-radius: var(--radius);
   padding: 14px;
-  transition: background .15s, border-color .15s;
+  transition: background var(--dur-fast), border-color var(--dur-fast), transform var(--dur-fast) var(--ease-out);
 }
-.big-btn { width: 100%; padding: 16px; font-size: 17px; margin-top: 6px; }
+.btn:active { transform: scale(0.97); }
+.btn .ico { width: 20px; height: 20px; color: var(--c-work); flex: none; }
+.big-btn { width: 100%; padding: 16px; font-size: 17px; margin-top: 6px; border-radius: 16px; }
 .big { font-size: 22px; font-weight: 700; }
+.brand {
+  width: fit-content;
+  background: linear-gradient(90deg, var(--c-work), var(--c-rest));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
 
 @media (hover: hover) {
-  .card.day:hover, .btn:hover { background: var(--card2); border-color: #3a3f4b; }
-  .primary:hover { background: #5b96ff; }
+  a.card:hover, .btn:hover { background: #ffffff1c; border-color: #ffffff2e; }
+  .primary:hover { box-shadow: 0 0 26px -2px color-mix(in srgb, var(--phase) 85%, transparent); }
   .ghost:hover { color: var(--fg); }
 }
-.card.day:active { background: var(--card2); }
+@media (prefers-reduced-motion: reduce) {
+  .pane, a.card, .btn, button { animation: none !important; transition: none !important; }
+}
 
 /* -------------------- home -------------------- */
 .day-list { display: flex; flex-direction: column; gap: 10px; }
@@ -161,7 +224,7 @@ button:active:not(:disabled) { transform: translateY(1px); }
 
 /* -------------------- setup -------------------- */
 .stepper { display: flex; align-items: center; gap: 18px; }
-.stepper button { width: 52px; height: 52px; font-size: 24px; }
+.stepper button { width: 52px; height: 52px; padding: 0; border-radius: 999px; }
 .stepper .big { min-width: 40px; text-align: center; }
 
 /* Interruptores (autopausa): mismo verde de fase y misma curva que el runner. */
@@ -199,9 +262,22 @@ input.switch {
 .switch:focus-visible { outline: 2px solid var(--c-work); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .switch, .switch::after { transition: none; } }
 
+/* -------------------- registro -------------------- */
+input.reps {
+  flex: none;
+  width: 84px;
+  text-align: center;
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
 /* -------------------- tablas -------------------- */
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
-th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #262a33; }
+.table-card { padding: 4px 12px; }
+.table-card tr:last-child td { border-bottom: 0; }
+th, td { text-align: left; padding: 10px 6px; border-bottom: 1px solid var(--glass-line); }
+td { font-variant-numeric: tabular-nums; }
 th { color: var(--muted); font-weight: 500; }
 
 /* -------------------- runner -------------------- */
@@ -409,13 +485,16 @@ th { color: var(--muted); font-weight: 500; }
   left: 50%;
   bottom: calc(24px + env(safe-area-inset-bottom));
   transform: translateX(-50%) translateY(20px);
-  background: #000c;
-  color: #fff;
+  background: color-mix(in srgb, var(--card) 85%, transparent);
+  border: 1px solid var(--glass-line);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  color: var(--fg);
   padding: 12px 18px;
   border-radius: 999px;
   font-size: 14px;
   opacity: 0;
-  transition: all 0.25s;
+  transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out);
   pointer-events: none;
   max-width: 90vw;
   text-align: center;
