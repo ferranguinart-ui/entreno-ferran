@@ -148,15 +148,24 @@ th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #262a33; }
 th { color: var(--muted); font-weight: 500; }
 
 /* -------------------- runner -------------------- */
-.run {
+/* El fondo ocupa toda la pantalla; el contenido va en una columna de
+   ancho --run-w. Los dígitos se dimensionan por el ancho disponible
+   (--dw) y por la altura (--dh), para que "00:00" nunca se salga. */
+.pane.run {
+  --run-w: 560px;
+  --dw: min(100vw - 32px, var(--run-w));
+  --dh: 24dvh;
+  max-width: none;
   min-height: 100dvh;
   justify-content: center;
   align-items: center;
   text-align: center;
   position: relative;
+  padding-left: max(16px, env(safe-area-inset-left));
+  padding-right: max(16px, env(safe-area-inset-right));
   transition: background 0.3s;
 }
-.run > *:not(.overlay) { width: 100%; max-width: 560px; }
+.run > *:not(.overlay) { width: 100%; max-width: var(--run-w); }
 .run[data-kind="work"]   { background: linear-gradient(180deg, var(--bg), var(--work)); }
 .run[data-kind="rest"]   { background: linear-gradient(180deg, var(--bg), var(--rest)); }
 .run[data-kind="warmup"] { background: linear-gradient(180deg, var(--bg), var(--warm)); }
@@ -164,11 +173,13 @@ th { color: var(--muted); font-weight: 500; }
 .run .run-top .round { margin-left: auto; }
 .phase { text-transform: uppercase; letter-spacing: 1px; }
 .digits {
-  font-size: clamp(84px, 30vw, 168px);
+  /* "00:00" mide ~2.9em de ancho en peso 800 */
+  font-size: max(56px, min(calc(var(--dw) / 3), var(--dh)));
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   line-height: 1;
   margin: 8px 0;
+  white-space: nowrap;
 }
 .exname { font-size: clamp(22px, 6vw, 30px); font-weight: 700; }
 .next { color: #cfd6e2; font-size: 14px; margin-top: 6px; }
@@ -245,6 +256,67 @@ th { color: var(--muted); font-weight: 500; }
 .hc.dl { background: var(--remate); }
 .hcount { color: var(--muted); font-size: 11px; margin-left: 4px; flex: none; }
 .hcount.ok { color: var(--ok); }
+
+/* -------------------- runner: tablet y horizontal -------------------- */
+@media (min-width: 640px) and (orientation: portrait) {
+  .pane.run { --run-w: 640px; --dh: 26dvh; }
+  .exname { font-size: 34px; }
+  .instructions { font-size: 17px; }
+}
+
+/* Móviles pequeños en vertical (iPhone SE y similares): todo cabe sin scroll. */
+@media (orientation: portrait) and (max-height: 700px) {
+  .pane.run { --dh: 19dvh; gap: 8px; padding-top: 12px; padding-bottom: 12px; }
+  .run .digits { margin: 0; }
+  .run .instructions { font-size: 14px; min-height: 4.2em; margin-top: 2px; }
+  .run .bar { margin: 6px 0; }
+  .run .run-controls button { padding: 14px 0; }
+}
+
+/* Pantallas apaisadas (PC, tablet horizontal, móvil horizontal):
+   dígitos a la izquierda, ejercicio y controles a la derecha. */
+@media (orientation: landscape) and (min-width: 900px),
+       (orientation: landscape) and (max-height: 520px) {
+  .pane.run {
+    --run-w: 1200px;
+    --dw: min(50vw - 48px, 600px);
+    --dh: 46dvh;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      "top    top"
+      "digits name"
+      "digits mus"
+      "digits info"
+      "digits next"
+      "digits ctrl"
+      "bar    bar"
+      "exit   exit";
+    grid-template-rows: auto auto auto auto auto auto auto auto;
+    align-content: center;
+    justify-items: stretch;
+    column-gap: 48px;
+    row-gap: 10px;
+    padding-left: max(24px, (100vw - 1200px) / 2);
+    padding-right: max(24px, (100vw - 1200px) / 2);
+  }
+  .pane.run > *:not(.overlay) { max-width: none; }
+  .run .run-top  { grid-area: top; }
+  .run .digits   { grid-area: digits; align-self: center; margin: 0; }
+  .run .exname   { grid-area: name; text-align: left; font-size: clamp(24px, 3vw, 40px); }
+  .run #exmus    { grid-area: mus; text-align: left; }
+  .run .instructions { grid-area: info; text-align: left; font-size: clamp(15px, 1.4vw, 19px); min-height: 4.2em; margin: 0; }
+  .run .next     { grid-area: next; text-align: left; margin: 0; }
+  .run .run-controls { grid-area: ctrl; margin-top: 8px; }
+  .run .bar      { grid-area: bar; margin: 10px 0 0; }
+  .run #exit     { grid-area: exit; justify-self: center; width: auto; }
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .pane.run { padding-top: 12px; padding-bottom: 12px; row-gap: 4px; column-gap: 24px; }
+  .run .instructions { font-size: 14px; min-height: 0; }
+  .run .run-controls button { padding: 10px 0; }
+  .run .exname { font-size: 22px; }
+}
 
 /* ============================================================
    TABLET  ≥ 640px
