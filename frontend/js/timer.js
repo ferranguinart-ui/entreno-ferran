@@ -268,7 +268,7 @@ export class TimerEngine {
       const sec = Math.ceil(remaining / 1000);
       this._playTones(tickCues(this.step, this._lastSec, sec));
       this._lastSec = sec;
-      this.onTick(sec, this.step, this.i);
+      this.onTick(sec, this.step, this.i, remaining);
       this._raf = raf(tick);
     };
     tick();
@@ -316,7 +316,7 @@ export class TimerEngine {
     if (this.running) this._stepCues(this.step);
     this.onStep(this.step, this.i);
     if (this.running) this._loop();
-    else this.onTick(this.step.seconds, this.step, this.i);
+    else this.onTick(this.step.seconds, this.step, this.i, this.step.seconds * 1000);
   }
 
   skip() {

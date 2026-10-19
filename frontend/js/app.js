@@ -1,5 +1,6 @@
 import { api } from "./api.js";
 import { buildSteps, TimerEngine, primaryLabel, readMuted, writeMuted } from "./timer.js";
+import { dialText, ringFraction, changedIndices, beatAt } from "./fx.js";
 
 const app = document.getElementById("app");
 const state = { boot: null, run: null, engine: null };
@@ -191,7 +192,24 @@ function viewSetup(dayId) {
 }
 
 // ------------------------------- run -----------------------------------
-const MUTE_ICON = { on: "&#128263;", off: "&#128266;" }; // 🔇 / 🔊
+// Iconos de línea (Lucide, ISC): mismo trazo en todos los botones del runner.
+const ico = (body) =>
+  `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+const SPEAKER = '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>';
+const ICON = {
+  back: ico('<polygon points="19 20 9 12 19 4 19 20"/><line x1="5" x2="5" y1="19" y2="5"/>'),
+  skip: ico('<polygon points="5 4 15 12 5 20 5 4"/><line x1="19" x2="19" y1="5" y2="19"/>'),
+  soundOn: ico(SPEAKER + '<path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>'),
+  soundOff: ico(SPEAKER + '<line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/>'),
+};
+const RING_C = 2 * Math.PI * 54; // circunferencia del anillo (r=54 en un viewBox de 120)
+
+/** Reinicia una animación CSS de un solo uso (quitar clase, reflow, poner). */
+const replay = (el, cls) => {
+  el.classList.remove(cls);
+  void el.offsetWidth;
+  el.classList.add(cls);
+};
 
 function viewRun() {
   const r = state.run;
@@ -207,24 +225,65 @@ function viewRun() {
       <div class="run-top">
         <span id="phase" class="phase">Preparado</span>
         <span id="round" class="round"></span>
-        <button id="mute" class="mute" type="button" aria-label="Silenciar sonido y voz" aria-pressed="false"></button>
+        <button id="mute" class="mute glass" type="button" aria-label="Silenciar sonido y voz" aria-pressed="false"></button>
       </div>
-      <div id="digits" class="digits">${fmt(steps[0].seconds)}</div>
+      <div id="dial" class="dial">
+        <svg class="ring" viewBox="0 0 120 120" aria-hidden="true">
+          <circle class="ring-track" cx="60" cy="60" r="54" />
+          <circle id="halo" class="ring-halo" cx="60" cy="60" r="54"
+            stroke-dasharray="${RING_C}" stroke-dashoffset="0" />
+          <circle id="ring" class="ring-fill" cx="60" cy="60" r="54"
+            stroke-dasharray="${RING_C}" stroke-dashoffset="0" />
+        </svg>
+        <div id="digits" class="digits" role="timer"></div>
+      </div>
       <div id="exname" class="exname"></div>
       <div id="exmus" class="muted"></div>
       <div id="exinfo" class="instructions"></div>
       <div id="next" class="next"></div>
       <div class="bar"><div id="fill" class="fill"></div></div>
       <div class="run-controls">
-        <button id="back" aria-label="Paso anterior">&#9198;</button>
-        <button id="pp" class="primary">${primaryLabel("idle")}</button>
-        <button id="skip" aria-label="Paso siguiente">&#9197;</button>
+        <button id="back" class="glass" aria-label="Paso anterior">${ICON.back}</button>
+        <button id="pp" class="go">${primaryLabel("idle")}</button>
+        <button id="skip" class="glass" aria-label="Paso siguiente">${ICON.skip}</button>
       </div>
       <button class="ghost small" id="exit">Salir sin guardar</button>
       <div id="overlay" class="overlay"></div>
     </div>`);
 
   const $ = (id) => document.getElementById(id);
+
+  // Dígitos: un span por carácter; solo se anima el que cambia.
+  const setDial = (sec) => {
+    const el = $("digits");
+    const text = dialText(sec);
+    const prev = el.dataset.t || "";
+    if (prev === text) return;
+    if (prev.length !== text.length) {
+      el.replaceChildren(...[...text].map(() => document.createElement("span")));
+      el.dataset.len = String(text.length);
+    }
+    const spans = el.children;
+    for (const k of changedIndices(prev, text)) {
+      spans[k].textContent = text[k];
+      if (prev) replay(spans[k], "roll");
+    }
+    el.dataset.t = text;
+    el.setAttribute("aria-label", fmt(sec));
+  };
+  const setRing = (remainingMs, step) => {
+    const off = String(RING_C * (1 - ringFraction(remainingMs, step.seconds)));
+    $("ring").style.strokeDashoffset = off;
+    $("halo").style.strokeDashoffset = off;
+  };
+  let lastSec = null;
+  const onTick = (sec, step, i, remainingMs = step.seconds * 1000) => {
+    setDial(sec);
+    setRing(remainingMs, step);
+    if (state.engine?.status === "running" && beatAt(lastSec, sec)) replay($("dial"), "beat");
+    lastSec = sec;
+  };
+
   const paint = (step, i) => {
     const total = state.engine?.steps.length || steps.length;
     $("runpane").dataset.kind = step.kind;
@@ -238,7 +297,11 @@ function viewRun() {
     $("exmus").textContent = step.muscle || step.note || "";
     $("exinfo").textContent = (step.kind === "rest" ? step.nextInstructions : step.instructions) || "";
     $("next").textContent = "Siguiente: " + step.nextName;
-    $("digits").textContent = fmt(step.seconds);
+    lastSec = null;
+    setDial(step.seconds);
+    setRing(step.seconds * 1000, step);
+    replay($("exname"), "enter");
+    replay($("exinfo"), "enter");
     $("fill").style.width = `${((i + 1) / total) * 100}%`;
     updatePP();
   };
@@ -251,18 +314,19 @@ function viewRun() {
     // Antes de iniciar: "Preparado" en vez de la fase del primer paso.
     const step = e ? e.step : steps[0];
     $("phase").textContent = status === "idle" ? "Preparado" : step.phase;
+    $("runpane").dataset.status = status;
   };
 
   const paintMute = () => {
     const b = $("mute");
-    b.innerHTML = muted ? MUTE_ICON.on : MUTE_ICON.off;
+    b.innerHTML = muted ? ICON.soundOff : ICON.soundOn;
     b.setAttribute("aria-pressed", String(muted));
     b.title = muted ? "Sonido desactivado" : "Sonido activado";
   };
 
   const makeEngine = (stp, onDone, finalCue = true) =>
     new TimerEngine(stp, {
-      onTick: (s) => { $("digits").textContent = fmt(s); },
+      onTick,
       onStep: paint,
       onDone,
       muted,
@@ -278,6 +342,9 @@ function viewRun() {
   };
 
   const afterMain = () => {
+    // El motor no emite un tick final: dejar el dial en 0 y el anillo vacío.
+    setDial(0);
+    setRing(0, state.engine.step);
     totalDuration += state.engine.durationSec();
     updatePP();
     const rem = remateExercises(day);

@@ -21,6 +21,28 @@
   --radius: 14px;
   --pane-w: 460px;
   accent-color: var(--accent);
+
+  /* Rediseño: colores de fase vivos + movimiento común. Todo el runner
+     (anillo, aurora, botón, barra) sale de --phase y de estas curvas. */
+  --c-work: #2fd47e;
+  --c-rest: #4d9bff;
+  --c-warm: #ffb547;
+  --c-ink: #08110c;          /* texto sobre color de fase */
+  --glass: #ffffff14;
+  --glass-line: #ffffff1f;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-fast: 0.18s;
+  --dur: 0.35s;
+  --dur-slow: 0.8s;
+}
+
+/* Registrada para que el cambio de fase se anime (Safari 16.4+, Chrome;
+   en navegadores sin @property el color cambia de golpe). */
+@property --phase {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #2fd47e;
 }
 
 * { box-sizing: border-box; }
@@ -149,8 +171,8 @@ th { color: var(--muted); font-weight: 500; }
 
 /* -------------------- runner -------------------- */
 /* El fondo ocupa toda la pantalla; el contenido va en una columna de
-   ancho --run-w. Los dígitos se dimensionan por el ancho disponible
-   (--dw) y por la altura (--dh), para que "00:00" nunca se salga. */
+   ancho --run-w. El dial (anillo + dígitos) se dimensiona por el ancho
+   disponible (--dw) y por la altura (--dh), para que nunca se salga. */
 .pane.run {
   --run-w: 560px;
   --dw: min(100vw - 32px, var(--run-w));
@@ -163,23 +185,94 @@ th { color: var(--muted); font-weight: 500; }
   position: relative;
   padding-left: max(16px, env(safe-area-inset-left));
   padding-right: max(16px, env(safe-area-inset-right));
-  transition: background 0.3s;
+  --phase: var(--c-work);
+  transition: --phase var(--dur-slow) var(--ease-out);
+  background: var(--bg);
+  isolation: isolate;
 }
 .run > *:not(.overlay) { width: 100%; max-width: var(--run-w); }
-.run[data-kind="work"]   { background: linear-gradient(180deg, var(--bg), var(--work)); }
-.run[data-kind="rest"]   { background: linear-gradient(180deg, var(--bg), var(--rest)); }
-.run[data-kind="warmup"] { background: linear-gradient(180deg, var(--bg), var(--warm)); }
+.run[data-kind="work"]   { --phase: var(--c-work); }
+.run[data-kind="rest"]   { --phase: var(--c-rest); }
+.run[data-kind="warmup"] { --phase: var(--c-warm); }
+
+/* Aurora: manchas de luz del color de la fase, a la deriva y desenfocadas. */
+.run::before {
+  content: "";
+  position: fixed; /* fixed: no genera scroll aunque sobresalga */
+  inset: -25%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(45% 40% at 22% 18%, color-mix(in srgb, var(--phase) 55%, transparent), transparent 70%),
+    radial-gradient(40% 45% at 80% 78%, color-mix(in srgb, var(--phase) 42%, transparent), transparent 70%),
+    radial-gradient(35% 30% at 60% 40%, color-mix(in srgb, var(--phase) 22%, transparent), transparent 70%),
+    linear-gradient(180deg, transparent 40%, color-mix(in srgb, var(--phase) 18%, transparent));
+  filter: blur(40px) saturate(1.2);
+  animation: aurora 22s ease-in-out infinite alternate;
+  transition: opacity var(--dur-slow) var(--ease-out);
+}
+@keyframes aurora {
+  0%   { transform: translate3d(0, 0, 0) rotate(0deg) scale(1); }
+  50%  { transform: translate3d(4%, -3%, 0) rotate(8deg) scale(1.08); }
+  100% { transform: translate3d(-3%, 4%, 0) rotate(-6deg) scale(1.02); }
+}
+.run[data-status="paused"]::before,
+.run[data-status="idle"]::before { animation-play-state: paused; opacity: 0.55; }
 .run .run-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 15px; color: #dfe5ef; }
-.run .run-top .round { margin-left: auto; }
+.run .run-top .round { margin-left: auto; white-space: nowrap; }
 .phase { text-transform: uppercase; letter-spacing: 1px; }
+/* Dial: anillo SVG con los dígitos dentro. --D es su diámetro; los
+   dígitos crecen cuando son 1-2 caracteres ("40") y se reducen con m:ss. */
+.run .dial {
+  --D: max(180px, min(var(--dw), var(--dh) * 1.65));
+  position: relative;
+  width: var(--D);
+  max-width: none;
+  height: var(--D);
+  margin: 4px auto;
+  display: grid;
+  place-items: center;
+}
+.ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; }
+.ring circle { fill: none; stroke-width: 7; }
+.ring-track { stroke: #ffffff17; }
+.ring-fill { stroke: var(--phase); stroke-linecap: round; }
+/* Brillo: un segundo trazo ancho y translúcido en vez de filter (WebKit
+   ignora filter en elementos internos de SVG y re-rasterizaría cada frame). */
+.ring .ring-halo { stroke: var(--phase); stroke-width: 16; stroke-linecap: round; opacity: 0.18; }
+.run[data-status="paused"] :is(.ring-fill, .ring-halo) { opacity: 0.5; }
+.run[data-status="paused"] .ring-halo { opacity: 0.08; }
+.dial.beat { animation: beat 0.42s var(--ease-out); }
+@keyframes beat {
+  0%   { transform: scale(1); }
+  30%  { transform: scale(1.045); }
+  100% { transform: scale(1); }
+}
+.dial.beat .ring-halo { animation: beat-glow 0.42s var(--ease-out); }
+@keyframes beat-glow {
+  30% { opacity: 0.5; stroke-width: 22; }
+}
 .digits {
-  /* "00:00" mide ~2.9em de ancho en peso 800 */
-  font-size: max(56px, min(calc(var(--dw) / 3), var(--dh)));
+  font-size: calc(var(--D) * 0.3);
   font-weight: 800;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
   line-height: 1;
-  margin: 8px 0;
   white-space: nowrap;
+  display: flex;
+  justify-content: center;
+}
+.digits[data-len="1"], .digits[data-len="2"] { font-size: calc(var(--D) * 0.46); }
+.digits span { display: inline-block; }
+.digits span.roll { animation: roll var(--dur) var(--ease-out); }
+@keyframes roll {
+  from { transform: translateY(-35%); filter: blur(6px); opacity: 0; }
+  to   { transform: none; filter: none; opacity: 1; }
+}
+.enter { animation: enter var(--dur) var(--ease-out); }
+@keyframes enter {
+  from { transform: translateY(8px); opacity: 0; }
+  to   { transform: none; opacity: 1; }
 }
 .exname { font-size: clamp(22px, 6vw, 30px); font-weight: 700; }
 .next { color: #cfd6e2; font-size: 14px; margin-top: 6px; }
@@ -191,21 +284,75 @@ th { color: var(--muted); font-weight: 500; }
   margin-top: 8px;
   text-wrap: pretty;
 }
+/* Botones de cristal (atrás, siguiente, sonido) y botón principal de fase. */
+.glass {
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  color: var(--fg);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  display: grid;
+  place-items: center;
+  transition: background var(--dur-fast), transform var(--dur-fast) var(--ease-out);
+}
+.ico { width: 24px; height: 24px; }
 .mute {
   flex: none;
   width: 44px;
   height: 44px;
   padding: 0;
-  font-size: 20px;
-  line-height: 1;
   border-radius: 999px;
-  background: #ffffff1a;
 }
-.mute[aria-pressed="true"] { background: #ffffff0d; opacity: 0.7; }
-.bar { height: 6px; background: #ffffff22; border-radius: 999px; overflow: hidden; margin: 16px 0; }
-.fill { height: 100%; width: 0; background: #fff; transition: width 0.3s; }
+.mute .ico { width: 20px; height: 20px; }
+.mute[aria-pressed="true"] { opacity: 0.6; }
+.bar { height: 6px; background: #ffffff17; border-radius: 999px; overflow: hidden; margin: 16px 0; }
+.fill {
+  height: 100%;
+  width: 0;
+  background: var(--phase);
+  box-shadow: 0 0 10px var(--phase);
+  border-radius: inherit;
+  transition: width var(--dur) var(--ease-out);
+}
 .run-controls { display: flex; gap: 10px; }
-.run-controls button { flex: 1; padding: 18px 0; font-size: 20px; }
+.run-controls button { flex: 1; padding: 18px 0; font-size: 20px; border-radius: 16px; }
+.run-controls .go {
+  flex: 1.6;
+  position: relative;
+  background: var(--phase);
+  color: var(--c-ink);
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  box-shadow: 0 0 18px -2px color-mix(in srgb, var(--phase) 75%, transparent);
+  transition: transform var(--dur-fast) var(--ease-out), box-shadow var(--dur);
+}
+/* Halo: respira cuando espera al usuario (Iniciar / Reanudar). */
+.run-controls .go::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 20px;
+  border: 2px solid var(--phase);
+  opacity: 0;
+  pointer-events: none;
+}
+.run:is([data-status="idle"], [data-status="paused"]) .go::after { animation: breathe 2.2s ease-in-out infinite; }
+@keyframes breathe {
+  0%, 100% { opacity: 0;   transform: scale(0.98); }
+  50%      { opacity: 0.8; transform: scale(1.03); }
+}
+.run-controls button:active:not(:disabled) { transform: scale(0.96); }
+@media (hover: hover) {
+  .glass:hover { background: #ffffff22; }
+  .run-controls .go:hover { box-shadow: 0 0 28px 0 color-mix(in srgb, var(--phase) 85%, transparent); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .run, .run::before, .dial, .ring-halo, .digits span, .enter, .go, .go::after, .fill {
+    animation: none !important;
+    transition: none !important;
+  }
+}
 
 .overlay {
   position: fixed;
@@ -266,8 +413,8 @@ th { color: var(--muted); font-weight: 500; }
 
 /* Móviles pequeños en vertical (iPhone SE y similares): todo cabe sin scroll. */
 @media (orientation: portrait) and (max-height: 700px) {
-  .pane.run { --dh: 19dvh; gap: 8px; padding-top: 12px; padding-bottom: 12px; }
-  .run .digits { margin: 0; }
+  .pane.run { --dh: 22dvh; gap: 8px; padding-top: 12px; padding-bottom: 12px; }
+  .run .dial { margin: 0 auto; }
   .run .instructions { font-size: 14px; min-height: 4.2em; margin-top: 2px; }
   .run .bar { margin: 6px 0; }
   .run .run-controls button { padding: 14px 0; }
@@ -302,7 +449,7 @@ th { color: var(--muted); font-weight: 500; }
   }
   .pane.run > *:not(.overlay) { max-width: none; }
   .run .run-top  { grid-area: top; }
-  .run .digits   { grid-area: digits; align-self: center; margin: 0; }
+  .run .dial     { grid-area: digits; align-self: center; justify-self: center; margin: 0; }
   .run .exname   { grid-area: name; text-align: left; font-size: clamp(24px, 3vw, 40px); }
   .run #exmus    { grid-area: mus; text-align: left; }
   .run .instructions { grid-area: info; text-align: left; font-size: clamp(15px, 1.4vw, 19px); min-height: 4.2em; margin: 0; }
@@ -312,7 +459,7 @@ th { color: var(--muted); font-weight: 500; }
   .run #exit     { grid-area: exit; justify-self: center; width: auto; }
 }
 @media (orientation: landscape) and (max-height: 520px) {
-  .pane.run { padding-top: 12px; padding-bottom: 12px; row-gap: 4px; column-gap: 24px; }
+  .pane.run { --dh: 36dvh; padding-top: 12px; padding-bottom: 12px; row-gap: 4px; column-gap: 24px; }
   .run .instructions { font-size: 14px; min-height: 0; }
   .run .run-controls button { padding: 10px 0; }
   .run .exname { font-size: 22px; }

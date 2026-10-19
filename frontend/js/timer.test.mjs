@@ -232,6 +232,19 @@ test("engine: durationSec 0 antes de iniciar y pequeño después", () => {
   e.stop();
 });
 
+test("engine: onTick recibe los ms restantes del paso (para el anillo)", () => {
+  const ms = [];
+  const e = new TimerEngine(mkSteps(), { onTick: (s, st, i, rem) => ms.push([s, rem]), muted: true });
+  e.start();
+  const [s, rem] = ms.at(-1);
+  assert.ok(rem > 0 && rem <= e.step.seconds * 1000, `rem ${rem}`);
+  assert.equal(s, Math.ceil(rem / 1000));
+  e.pause();
+  e.skip(); // en pausa: _jump pinta el paso entero
+  assert.deepEqual(ms.at(-1), [e.step.seconds, e.step.seconds * 1000]);
+  e.stop();
+});
+
 test("engine: resume() sin start() equivale a start() (no salta el paso 0)", () => {
   const { e, calls } = mkEngine();
   e.resume();
