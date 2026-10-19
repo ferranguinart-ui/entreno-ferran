@@ -83,13 +83,15 @@ Luego, cuando el DNS A de `entreno` apunte al VPS: `sudo certbot --nginx -d entr
 
 **2. Deploy continuo:** el VPS se despliega solo. `entreno-deploy.timer` (systemd)
 sondea `origin/main` cada 2 min; si hay commits nuevos hace `git reset --hard` +
-`deploy/update.sh`. El repo es público, así que el VPS no necesita credenciales
+`deploy/update.sh` (que reaplica `db/schema.sql` y `db/seed.sql`, ambos
+idempotentes). El repo es público, así que el VPS no necesita credenciales
 de GitHub y no hay *secrets* que configurar. GitHub Actions solo corre los tests.
 
 ## Notas de implementación
 
 - **iOS**: la Vibration API no existe en Safari iOS — sólo suena el beep. El
-  audio se activa con el botón "Toca para empezar" (requisito de iOS).
+  audio y la voz se activan al pulsar "Iniciar" (requisito de iOS: tiene que
+  ser dentro de un gesto del usuario).
 - **Reps por ronda**: el MVP guarda sólo la ronda 1. `session_logs.round_number`
   ya existe: pasar a "apuntar todas las rondas" es sólo cambiar la UI.
 - **Salir a media sesión**: se descarta, no se guarda. (Mejorable más adelante.)

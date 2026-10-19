@@ -1,6 +1,7 @@
 import json
+import os
 
-from conftest import ROOT
+from conftest import ROOT, _psql
 
 
 def test_auth_required(client):
@@ -80,3 +81,30 @@ def test_seed_matches_plan(auth_client):
         got = [e["name"] for e in days[pd["id"]]["exercises"] if e["block"] == "main"]
         want = [e["nombre"] for e in pd["ejercicios"]]
         assert got == want, f"día {pd['id']}: seed.sql y plan.json divergen"
+
+
+def _assert_all_instructions(client):
+    days = client.get("/api/bootstrap").json()["days"]
+    exs = [e for d in days for e in d["exercises"]]
+    assert len(exs) == 24  # 4 de calentamiento + 5 por cada día 1-4
+    for e in exs:
+        txt = e.get("instructions")
+        assert isinstance(txt, str) and len(txt.strip()) > 20, f"ejercicio {e['id']} sin instrucciones"
+
+
+def test_all_exercises_have_instructions(auth_client):
+    _assert_all_instructions(auth_client)
+
+
+def test_instructions_migration_is_idempotent(auth_client):
+    """Simula una BD de producción anterior (sin la columna): schema.sql la
+    añade, el seed la rellena y re-aplicar schema.sql no rompe nada."""
+    db_url = os.environ["DATABASE_URL"]
+    schema = str(ROOT / "db" / "schema.sql")
+    seed = str(ROOT / "db" / "seed.sql")
+    _psql(db_url, "-c", "alter table exercises drop column if exists instructions;")
+    _psql(db_url, "-f", schema)
+    _psql(db_url, "-f", seed)
+    _psql(db_url, "-f", schema)
+    _psql(db_url, "-f", seed)
+    _assert_all_instructions(auth_client)

@@ -74,3 +74,36 @@ on conflict (id) do update set
   muscle_primary=excluded.muscle_primary, muscle_secondary=excluded.muscle_secondary,
   work_sec=excluded.work_sec, rest_sec=excluded.rest_sec, rounds=excluded.rounds,
   is_optional=excluded.is_optional, note=excluded.note, sort_order=excluded.sort_order;
+
+-- ----------------------------- instrucciones ------------------------------
+-- Texto que el timer muestra bajo el nombre del ejercicio (en el descanso,
+-- el del siguiente). Posición, movimiento y error común. Requiere la columna
+-- exercises.instructions (schema.sql la añade de forma idempotente).
+update exercises e set instructions = v.t
+from (values
+  ( 1, 'De pie, pies juntos y brazos a los lados. Salta abriendo las piernas y subiendo los brazos por encima de la cabeza, y vuelve a cerrar. Aterriza suave sobre la parte delantera del pie, sin bloquear las rodillas.'),
+  ( 2, 'De pie, brazos relajados a los lados. Haz círculos amplios con los hombros, primero hacia delante y luego hacia atrás. Mantén los hombros lejos de las orejas y el cuello suelto.'),
+  ( 3, 'Pies a la anchura de los hombros y brazos al frente. Baja llevando la cadera atrás hasta que los muslos queden paralelos al suelo y sube empujando con los talones. Que las rodillas no se vayan hacia dentro.'),
+  ( 4, 'Prepara las mancuernas y despeja el espacio para el primer ejercicio. Inspira por la nariz contando 4 tiempos y suelta el aire por la boca en 6. Relaja hombros y mandíbula.'),
+  (10, 'Tumbado boca arriba, rodillas flexionadas y una mancuerna en cada mano a la altura del pecho. Empuja hacia arriba hasta estirar los brazos y baja controlando hasta que los codos toquen el suelo. Codos a unos 45 grados del cuerpo, no abiertos en cruz.'),
+  (11, 'Tumbado boca arriba, rodillas flexionadas y mancuernas sobre el pecho con las palmas enfrentadas. Abre los brazos en arco hacia los lados con los codos ligeramente flexionados y vuelve a cerrar apretando el pecho. No dobles más los codos al bajar: no lo conviertas en un press.'),
+  (12, 'De pie o sentado, mancuernas a la altura de los hombros con las palmas al frente. Empuja hacia arriba hasta casi estirar los brazos y baja controlando. Aprieta abdomen y glúteos para no arquear la zona lumbar.'),
+  (13, 'Tumbado boca arriba con los brazos estirados sobre el pecho y una mancuerna en cada mano. Flexiona solo los codos para bajar las mancuernas junto a la cabeza y vuelve a estirar. Los codos apuntan al techo: no los abras hacia los lados.'),
+  (14, 'Manos algo más abiertas que los hombros y cuerpo en línea recta de cabeza a talones; apoya las rodillas si hace falta. Baja el pecho hasta cerca del suelo y empuja para subir. No hundas ni levantes la cadera.'),
+  (20, 'Pies a la anchura de los hombros. Baja llevando la cadera atrás hasta que los muslos queden paralelos al suelo y sube empujando con todo el pie. No levantes los talones ni dejes que las rodillas se vayan hacia dentro.'),
+  (21, 'Espalda apoyada en la pared y baja hasta que rodillas y cadera formen un ángulo recto, rodillas sobre los tobillos. Aguanta la posición respirando con calma. No apoyes las manos en los muslos.'),
+  (22, 'Tumbado boca arriba, rodillas flexionadas y una mancuerna sujeta contra el pecho. Sube el tronco despegando los omóplatos del suelo y baja despacio. No tires del cuello ni uses impulso.'),
+  (23, 'Tumbado boca abajo con los brazos estirados al frente o junto al cuerpo. Eleva a la vez pecho y piernas unos centímetros, aguanta un instante y baja controlando. Mira al suelo para no forzar el cuello.'),
+  (24, 'Apoya antebrazos y puntas de los pies, con los codos justo debajo de los hombros. Mantén el cuerpo en línea recta apretando abdomen y glúteos. No hundas la cadera, no la subas y no aguantes la respiración.'),
+  (30, 'Apoya una rodilla y la mano del mismo lado en un banco o silla, espalda recta y la mancuerna colgando con el otro brazo. Tira llevando el codo hacia la cadera y baja controlando, sin girar el tronco. Haz la mitad del tiempo con cada brazo.'),
+  (31, 'De pie, rodillas ligeramente flexionadas y mancuernas delante de los muslos. Lleva la cadera atrás bajando las mancuernas pegadas a las piernas hasta notar el estiramiento del femoral y sube apretando glúteos. No redondees la espalda.'),
+  (32, 'De pie, mancuernas a los lados con las palmas hacia delante. Sube flexionando los codos y baja despacio hasta estirar los brazos. Codos pegados al cuerpo y sin balancear el tronco.'),
+  (33, 'Martillo: de pie, palmas enfrentadas, sube las mancuernas flexionando los codos pegados al cuerpo. Concentrado: sentado, codo apoyado en la cara interna del muslo, sube la mancuerna hacia el hombro. En ambas, controla la bajada y no balancees.'),
+  (34, 'Sujeta la mancuerna con el codo pegado al cuerpo y el antebrazo paralelo al suelo, a 90 grados. Aguanta la posición sin dejar caer la muñeca ni separar el codo. Cambia de brazo a la mitad del tiempo.'),
+  (40, 'Pies a la anchura de los hombros. Baja llevando la cadera atrás hasta que los muslos queden paralelos al suelo y sube empujando con todo el pie. No levantes los talones ni dejes que las rodillas se vayan hacia dentro.'),
+  (41, 'De pie, da un paso largo al frente y baja hasta que ambas rodillas formen un ángulo de 90 grados. Empuja con el pie delantero para volver y alterna de pierna. Que la rodilla delantera no se vaya hacia dentro ni pase mucho de la punta del pie.'),
+  (42, 'Tumbado boca arriba, rodillas flexionadas y pies apoyados cerca de los glúteos. Eleva la cadera hasta alinear rodillas, cadera y hombros, aprieta el glúteo arriba y baja controlando. El empuje sale del glúteo, no de la zona lumbar.'),
+  (43, 'Tumbado boca arriba, rodillas flexionadas y una mancuerna sujeta contra el pecho. Sube el tronco despegando los omóplatos del suelo y baja despacio. No tires del cuello ni uses impulso.'),
+  (44, 'Apoya antebrazos y puntas de los pies, con los codos justo debajo de los hombros. Mantén el cuerpo en línea recta apretando abdomen y glúteos. No hundas la cadera, no la subas y no aguantes la respiración.')
+) as v(id, t)
+where e.id = v.id;

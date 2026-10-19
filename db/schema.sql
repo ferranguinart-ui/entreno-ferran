@@ -68,8 +68,12 @@ create table if not exists exercises (
   rounds           smallint,   -- override de rondas (remates: 1)
   is_optional      boolean not null default false,
   note             text,
+  instructions     text,       -- cómo hacerlo (2-3 frases), se muestra en el timer
   sort_order       smallint not null
 );
+-- Migración idempotente para BDs creadas antes de existir la columna
+-- (create table if not exists no añade columnas a una tabla ya creada).
+alter table exercises add column if not exists instructions text;
 
 -- ---------------------------------------------------------------------------
 -- Sesiones. Una por entrenamiento (timer o manual).

@@ -89,7 +89,10 @@ sudo ufw enable
 
 **Automático:** `entreno-deploy.timer` sondea `origin/main` cada 2 min y, si hay
 cambios, hace `git reset --hard` + `deploy/update.sh` (reinstala deps si cambian,
-reaplica `seed.sql`, reinicia el servicio). No hace falta nada más que un `push`.
+reaplica `schema.sql` y luego `seed.sql` —ambos idempotentes—, reinicia el servicio).
+Si cambias el esquema, hazlo de forma idempotente (`alter table ... add column if
+not exists` para columnas nuevas), porque se re-ejecuta en cada deploy.
+No hace falta nada más que un `push`.
 Repo público → sin credenciales en el VPS.
 
 ```bash

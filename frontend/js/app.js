@@ -1,5 +1,5 @@
 import { api } from "./api.js";
-import { buildSteps, TimerEngine } from "./timer.js";
+import { buildSteps, TimerEngine, primaryLabel, readMuted, writeMuted } from "./timer.js";
 
 const app = document.getElementById("app");
 const state = { boot: null, run: null, engine: null };
@@ -28,6 +28,15 @@ function toast(msg) {
   clearTimeout(toast._t);
   toast._t = setTimeout(() => t.classList.remove("show"), 2600);
 }
+
+// localStorage puede lanzar (modo privado / bloqueado): readMuted/writeMuted lo toleran.
+const storage = () => {
+  try {
+    return window.localStorage;
+  } catch (_) {
+    return undefined;
+  }
+};
 
 const dayById = (id) => state.boot.days.find((d) => d.id === +id);
 const warmupExercises = () => (dayById(0)?.exercises || []).filter((e) => e.block === "warmup");
@@ -182,11 +191,14 @@ function viewSetup(dayId) {
 }
 
 // ------------------------------- run -----------------------------------
+const MUTE_ICON = { on: "&#128263;", off: "&#128266;" }; // 🔇 / 🔊
+
 function viewRun() {
   const r = state.run;
   if (!r) return (location.hash = "#/");
   const { day } = r;
   let totalDuration = 0;
+  let muted = readMuted(storage());
 
   const steps = buildSteps(day, warmupExercises(), { rounds: r.rounds, remates: [] });
 
@@ -195,25 +207,27 @@ function viewRun() {
       <div class="run-top">
         <span id="phase" class="phase">Preparado</span>
         <span id="round" class="round"></span>
+        <button id="mute" class="mute" type="button" aria-label="Silenciar sonido y voz" aria-pressed="false"></button>
       </div>
       <div id="digits" class="digits">${fmt(steps[0].seconds)}</div>
-      <div id="exname" class="exname">${esc(steps[0].name)}</div>
+      <div id="exname" class="exname"></div>
       <div id="exmus" class="muted"></div>
-      <div id="next" class="next">Siguiente: ${esc(steps[0].nextName)}</div>
+      <div id="exinfo" class="instructions"></div>
+      <div id="next" class="next"></div>
       <div class="bar"><div id="fill" class="fill"></div></div>
       <div class="run-controls">
-        <button id="back">&#9198;</button>
-        <button id="pp" class="primary">Pausa</button>
-        <button id="skip">&#9197;</button>
+        <button id="back" aria-label="Paso anterior">&#9198;</button>
+        <button id="pp" class="primary">${primaryLabel("idle")}</button>
+        <button id="skip" aria-label="Paso siguiente">&#9197;</button>
       </div>
       <button class="ghost small" id="exit">Salir sin guardar</button>
-      <div id="overlay" class="overlay"><button class="primary big-btn" id="begin">Toca para empezar</button></div>
+      <div id="overlay" class="overlay"></div>
     </div>`);
 
   const $ = (id) => document.getElementById(id);
   const paint = (step, i) => {
+    const total = state.engine?.steps.length || steps.length;
     $("runpane").dataset.kind = step.kind;
-    $("phase").textContent = step.phase;
     $("round").textContent =
       step.round > 0 && step.kind !== "warmup" && step.phase !== "Remate"
         ? `Ronda ${step.round}/${step.totalRounds}`
@@ -222,16 +236,37 @@ function viewRun() {
         : "";
     $("exname").textContent = step.name;
     $("exmus").textContent = step.muscle || step.note || "";
+    $("exinfo").textContent = (step.kind === "rest" ? step.nextInstructions : step.instructions) || "";
     $("next").textContent = "Siguiente: " + step.nextName;
     $("digits").textContent = fmt(step.seconds);
-    $("fill").style.width = `${((i + 1) / steps.length) * 100}%`;
+    $("fill").style.width = `${((i + 1) / total) * 100}%`;
+    updatePP();
   };
 
-  const makeEngine = (stp, onDone) =>
+  const updatePP = () => {
+    const e = state.engine;
+    const status = e ? e.status : "idle";
+    $("pp").textContent = primaryLabel(status);
+    $("pp").disabled = status === "done";
+    // Antes de iniciar: "Preparado" en vez de la fase del primer paso.
+    const step = e ? e.step : steps[0];
+    $("phase").textContent = status === "idle" ? "Preparado" : step.phase;
+  };
+
+  const paintMute = () => {
+    const b = $("mute");
+    b.innerHTML = muted ? MUTE_ICON.on : MUTE_ICON.off;
+    b.setAttribute("aria-pressed", String(muted));
+    b.title = muted ? "Sonido desactivado" : "Sonido activado";
+  };
+
+  const makeEngine = (stp, onDone, finalCue = true) =>
     new TimerEngine(stp, {
       onTick: (s) => { $("digits").textContent = fmt(s); },
       onStep: paint,
       onDone,
+      muted,
+      finalCue,
     });
 
   const finish = (doneRemates) => {
@@ -244,6 +279,7 @@ function viewRun() {
 
   const afterMain = () => {
     totalDuration += state.engine.durationSec();
+    updatePP();
     const rem = remateExercises(day);
     if (!rem.length) return finish([]);
     const ov = $("overlay");
@@ -266,33 +302,38 @@ function viewRun() {
       const exs = rem.filter((e) => chosen.includes(e.id));
       if (!exs.length) return finish([]);
       const rSteps = buildSteps(day, [], { rounds: 0, remates: exs });
+      ov.classList.remove("show");
+      ov.innerHTML = "";
       state.engine = makeEngine(rSteps, () => {
         totalDuration += state.engine.durationSec();
         finish(exs);
       });
-      ov.innerHTML = `<button class="primary big-btn" id="begin2">Toca para seguir</button>`;
-      $("begin2").onclick = () => {
-        ov.classList.remove("show");
-        state.engine.start();
-      };
+      // Este click es un gesto del usuario: arranca directamente (desbloquea audio).
+      state.engine.start();
+      updatePP();
     };
   };
 
-  state.engine = makeEngine(steps, afterMain);
-  $("begin").onclick = () => {
-    $("overlay").classList.remove("show");
-    state.engine.start();
-  };
+  // Si queda remate, al acabar el bloque principal no se anuncia "Entreno terminado".
+  state.engine = makeEngine(steps, afterMain, remateExercises(day).length === 0);
+  paint(steps[0], 0);
+  paintMute();
+
   $("pp").onclick = () => {
-    const e = state.engine;
-    if (e.running) { e.pause(); $("pp").textContent = "Reanudar"; }
-    else { e.resume(); $("pp").textContent = "Pausa"; }
+    state.engine?.toggle();
+    updatePP();
   };
-  $("skip").onclick = () => state.engine.skip();
-  $("back").onclick = () => state.engine.back();
+  $("mute").onclick = () => {
+    muted = !muted;
+    writeMuted(storage(), muted);
+    state.engine?.setMuted(muted);
+    paintMute();
+  };
+  $("skip").onclick = () => { state.engine?.skip(); updatePP(); };
+  $("back").onclick = () => { state.engine?.back(); updatePP(); };
   $("exit").onclick = () => {
     if (confirm("¿Salir sin guardar el entreno?")) {
-      state.engine.stop();
+      state.engine?.stop();
       state.engine = null;
       state.run = null;
       location.hash = "#/";

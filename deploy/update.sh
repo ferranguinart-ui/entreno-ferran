@@ -19,6 +19,9 @@ set -a; . "$ENV_FILE"; set +a
 echo "▶ dependencias"
 sudo -u "$APP_USER" "$APP_DIR/backend/.venv/bin/pip" install -q -r "$APP_DIR/backend/requirements.txt"
 
+echo "▶ esquema (idempotente: create if not exists + alter ... add column if not exists)"
+sudo -u "$APP_USER" psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$APP_DIR/db/schema.sql"
+
 echo "▶ datos semilla (idempotente: recoge cambios del plan)"
 sudo -u "$APP_USER" psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$APP_DIR/db/seed.sql"
 
@@ -28,5 +31,7 @@ sleep 1
 PORT="$(grep -oE -- '--port [0-9]+' /etc/systemd/system/entreno.service | awk '{print $2}')"
 curl -fsS -o /dev/null "http://127.0.0.1:${PORT:-8020}/" && echo "✓ app OK en :${PORT:-8020}"
 
-# Nota: db/schema.sql NO se aplica en cada deploy. Si cambias el esquema,
-# ejecútalo a mano:  sudo -u entreno psql "$DATABASE_URL" -f db/schema.sql
+# Nota: db/schema.sql se aplica en cada deploy ANTES del seed, así que debe
+# seguir siendo idempotente. Columnas nuevas en tablas existentes: añádelas
+# también con "alter table ... add column if not exists" (create table if not
+# exists no las crea en una BD ya existente).
