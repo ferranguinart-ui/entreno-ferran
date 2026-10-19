@@ -113,6 +113,15 @@ class LogsIn(BaseModel):
     logs: list[LogItem]
 
 
+class AutopauseItem(BaseModel):
+    id: int
+    autopause: bool
+
+
+class AutopauseIn(BaseModel):
+    updates: list[AutopauseItem]
+
+
 class MeasurementIn(BaseModel):
     date: str
     weight_kg: Optional[float] = None
@@ -228,6 +237,18 @@ async def put_logs(sid: str, body: LogsIn, user: str = Depends(current_user)):
                 (sid, it.exercise_id, it.round_number, it.reps),
             )
     return {"ok": True}
+
+
+@app.patch("/api/exercises/autopause")
+async def set_autopause(body: AutopauseIn, user: str = Depends(current_user)):
+    updated = 0
+    async with db.conn() as c:
+        for it in body.updates:
+            cur = await c.execute(
+                "update exercises set autopause = %s where id = %s", (it.autopause, it.id)
+            )
+            updated += cur.rowcount
+    return {"updated": updated}
 
 
 @app.get("/api/sessions")

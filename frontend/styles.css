@@ -164,6 +164,41 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .stepper button { width: 52px; height: 52px; font-size: 24px; }
 .stepper .big { min-width: 40px; text-align: center; }
 
+/* Interruptores (autopausa): mismo verde de fase y misma curva que el runner. */
+.switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--fg); cursor: pointer; }
+.ap-list { display: flex; flex-direction: column; gap: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+input.switch {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: none;
+  width: 46px;
+  height: 28px;
+  padding: 0;
+  border-radius: 999px;
+  background: var(--card2);
+  border: 1px solid var(--line);
+  position: relative;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast);
+}
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--fg);
+  transition: transform var(--dur) var(--ease-spring);
+}
+.switch:checked { background: var(--c-work); border-color: var(--c-work); }
+.switch:checked::after { transform: translateX(18px); background: var(--c-ink); }
+.switch:indeterminate { background: color-mix(in srgb, var(--c-work) 40%, var(--card2)); }
+.switch:indeterminate::after { transform: translateX(9px); }
+.switch:focus-visible { outline: 2px solid var(--c-work); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .switch, .switch::after { transition: none; } }
+
 /* -------------------- tablas -------------------- */
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #262a33; }
@@ -176,8 +211,9 @@ th { color: var(--muted); font-weight: 500; }
 .pane.run {
   --run-w: 560px;
   --dw: min(100vw - 32px, var(--run-w));
-  --dh: 24dvh;
+  --dh: 19dvh; /* dial ≈ 31dvh: deja sitio a instrucciones largas (hasta ~280 car.) */
   max-width: none;
+  gap: 10px;
   min-height: 100dvh;
   justify-content: center;
   align-items: center;
@@ -216,8 +252,10 @@ th { color: var(--muted); font-weight: 500; }
   50%  { transform: translate3d(4%, -3%, 0) rotate(8deg) scale(1.08); }
   100% { transform: translate3d(-3%, 4%, 0) rotate(-6deg) scale(1.02); }
 }
-.run[data-status="paused"]::before,
-.run[data-status="idle"]::before { animation-play-state: paused; opacity: 0.55; }
+.run:is([data-status="paused"], [data-status="idle"], [data-status="waiting"])::before {
+  animation-play-state: paused;
+  opacity: 0.55;
+}
 .run .run-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 15px; color: #dfe5ef; }
 .run .run-top .round { margin-left: auto; white-space: nowrap; }
 .phase { text-transform: uppercase; letter-spacing: 1px; }
@@ -336,7 +374,7 @@ th { color: var(--muted); font-weight: 500; }
   opacity: 0;
   pointer-events: none;
 }
-.run:is([data-status="idle"], [data-status="paused"]) .go::after { animation: breathe 2.2s ease-in-out infinite; }
+.run:is([data-status="idle"], [data-status="paused"], [data-status="waiting"]) .go::after { animation: breathe 2.2s ease-in-out infinite; }
 @keyframes breathe {
   0%, 100% { opacity: 0;   transform: scale(0.98); }
   50%      { opacity: 0.8; transform: scale(1.03); }
@@ -413,7 +451,7 @@ th { color: var(--muted); font-weight: 500; }
 
 /* Móviles pequeños en vertical (iPhone SE y similares): todo cabe sin scroll. */
 @media (orientation: portrait) and (max-height: 700px) {
-  .pane.run { --dh: 22dvh; gap: 8px; padding-top: 12px; padding-bottom: 12px; }
+  .pane.run { --dh: 16dvh; gap: 6px; padding-top: 12px; padding-bottom: 12px; }
   .run .dial { margin: 0 auto; }
   .run .instructions { font-size: 14px; min-height: 4.2em; margin-top: 2px; }
   .run .bar { margin: 6px 0; }
@@ -460,7 +498,7 @@ th { color: var(--muted); font-weight: 500; }
 }
 @media (orientation: landscape) and (max-height: 520px) {
   .pane.run { --dh: 36dvh; padding-top: 12px; padding-bottom: 12px; row-gap: 4px; column-gap: 24px; }
-  .run .instructions { font-size: 14px; min-height: 0; }
+  .run .instructions { font-size: 13px; line-height: 1.3; min-height: 0; }
   .run .run-controls button { padding: 10px 0; }
   .run .exname { font-size: 22px; }
 }

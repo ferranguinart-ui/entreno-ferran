@@ -52,6 +52,7 @@ export const api = {
   sessions: (limit = 30) => req("GET", `/api/sessions?limit=${limit}`),
   measurements: () => req("GET", "/api/measurements"),
   dashboard: () => req("GET", "/api/dashboard"),
+  setAutopause: (updates) => req("PATCH", "/api/exercises/autopause", { updates }),
 
   async saveWorkout(payload) {
     try {

@@ -40,6 +40,7 @@ export function buildSteps(day, warmupExercises, { rounds, remates }) {
         totalRounds: rounds,
         exerciseId: ex.id,
         instructions: ex.instructions ?? null,
+        autopause: !!ex.autopause,
       });
       if (!(last && lastRound)) {
         push({
@@ -76,6 +77,7 @@ export function buildSteps(day, warmupExercises, { rounds, remates }) {
       exerciseId: ex.id,
       note: ex.note,
       instructions: ex.instructions ?? null,
+      autopause: !!ex.autopause,
     });
   });
 
@@ -99,6 +101,7 @@ export const TONES = Object.freeze({
   rest: [tone(392, 150), tone(392, 150, 200)], // empieza descanso (doble grave)
   done: [tone(523, 180), tone(659, 180, 200), tone(784, 400, 400)], // fin
   half: [tone(660, 160, 0, 0.12)], //       mitad de un trabajo largo (suave)
+  ready: [tone(660, 120), tone(880, 180, 160)], // autopausa: listo, esperando (sube)
 });
 
 /** Qué suena y qué se dice al ENTRAR en un paso (o {kind:"done"} al acabar). */
@@ -116,6 +119,8 @@ export function stepStartCues(step) {
       return { tones: TONES.done, speak: "Entreno terminado" };
     case "blockDone": // acaba el bloque principal pero queda remate
       return { tones: TONES.rest, speak: "Bloque terminado" };
+    case "autopause": // autopausa: el ejercicio espera a que se pulse Continuar
+      return { tones: TONES.ready, speak: `${step.name}. Cuando estés listo` };
     default:
       return { tones: [], speak: null };
   }
@@ -142,6 +147,7 @@ export function finishCue(finalCue = true) {
 export function primaryLabel(status) {
   if (status === "running") return "Pausa";
   if (status === "paused") return "Reanudar";
+  if (status === "waiting") return "Continuar";
   return "Iniciar";
 }
 
@@ -206,15 +212,16 @@ export class TimerEngine {
     this.pausedAccum = 0;
     this.pauseStart = 0;
     this.endedAt = 0;
+    this.waiting = false; // autopausa: parado al inicio de un paso, esperando
     this._lastSec = null;
     this._raf = null;
     this._wake = null;
     this._audio = null;
     this._onVis = () => {
-      if (this.running && hasDoc() && document.visibilityState === "visible") {
-        this._acquireWake();
-        this._loop();
-      }
+      if (!hasDoc() || document.visibilityState !== "visible") return;
+      // En espera (autopausa) el entreno sigue: pantalla encendida, sin bucle.
+      if (this.running || this.waiting) this._acquireWake();
+      if (this.running) this._loop();
     };
   }
 
@@ -222,10 +229,11 @@ export class TimerEngine {
     return this.steps[this.i];
   }
 
-  /** idle (sin iniciar) | running | paused | done */
+  /** idle (sin iniciar) | running | paused | waiting (autopausa) | done */
   get status() {
     if (this.finished) return "done";
     if (this.running) return "running";
+    if (this.waiting) return "waiting";
     return this.started ? "paused" : "idle";
   }
 
@@ -234,7 +242,7 @@ export class TimerEngine {
     const s = this.status;
     if (s === "idle") this.start();
     else if (s === "running") this.pause();
-    else if (s === "paused") this.resume();
+    else if (s === "paused" || s === "waiting") this.resume();
   }
 
   // Síncrono a propósito: el desbloqueo de audio/voz tiene que ocurrir dentro
@@ -278,13 +286,30 @@ export class TimerEngine {
     if (this.i >= this.steps.length - 1) return this._finish();
     const prevEnd = this.stepEndsAt;
     this.i += 1;
-    this.stepEndsAt = prevEnd + this.step.seconds * 1000; // carry-over, sin drift
     this._lastSec = null;
+    if (this.step.autopause) return this._autoPause(prevEnd);
+    this.stepEndsAt = prevEnd + this.step.seconds * 1000; // carry-over, sin drift
     // Al volver de segundo plano se pueden encadenar varios _advance seguidos:
     // solo suena el paso que de verdad está en curso.
     if (this.stepEndsAt > Date.now()) this._stepCues(this.step);
     this.onStep(this.step, this.i);
     this._loop();
+  }
+
+  /** Fin natural de un paso → el siguiente tiene autopausa: parado con el
+   *  paso entero hasta Continuar. Como una pausa (no cuenta en durationSec),
+   *  pero mantiene el Wake Lock: el entreno sigue. */
+  _autoPause(since = Date.now()) {
+    caf(this._raf);
+    this.running = false;
+    this.waiting = true;
+    this.remainingMs = this.step.seconds * 1000;
+    // Desde que acabó el descanso (puede ser en el pasado si venimos de
+    // segundo plano): ese rato no cuenta como entreno.
+    this.pauseStart = Math.min(Date.now(), since);
+    this._stepCues({ kind: "autopause", name: this.step.name });
+    this.onStep(this.step, this.i);
+    this.onTick(this.step.seconds, this.step, this.i, this.remainingMs);
   }
 
   pause() {
@@ -304,11 +329,19 @@ export class TimerEngine {
     this.stepEndsAt = Date.now() + this.remainingMs;
     this.running = true;
     this._acquireWake();
-    this._playTones(TONES.start);
+    if (this.waiting) {
+      // Continuar tras la autopausa: empieza el ejercicio con sus señales.
+      this.waiting = false;
+      this._lastSec = null;
+      this._stepCues(this.step);
+    } else {
+      this._playTones(TONES.start);
+    }
     this._loop();
   }
 
   _jump(to) {
+    this.waiting = false; // saltar a mano desde la espera deja una pausa normal
     this.i = to;
     this.stepEndsAt = Date.now() + this.step.seconds * 1000;
     this.remainingMs = this.step.seconds * 1000; // por si se reanuda desde pausa
@@ -343,6 +376,7 @@ export class TimerEngine {
 
   _teardown() {
     this.running = false;
+    this.waiting = false;
     caf(this._raf);
     if (hasDoc()) document.removeEventListener("visibilitychange", this._onVis);
     this._releaseWake();
@@ -448,7 +482,7 @@ export class TimerEngine {
     try {
       const lock = (await nav()?.wakeLock?.request("screen")) || null;
       // Sin await en start(): si se paró mientras tanto, no lo retengas.
-      if (lock && !this.running) lock.release();
+      if (lock && !this.running && !this.waiting) lock.release();
       else this._wake = lock;
     } catch (_) {
       this._wake = null;
@@ -461,4 +495,11 @@ export class TimerEngine {
     } catch (_) {}
     this._wake = null;
   }
+}
+
+/** Interruptor "todo el entreno" de la autopausa: all | none | some. */
+export function autopauseState(exercises) {
+  const on = exercises.filter((e) => e.autopause).length;
+  if (on === 0) return "none";
+  return on === exercises.length ? "all" : "some";
 }

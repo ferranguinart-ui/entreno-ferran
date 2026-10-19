@@ -74,6 +74,10 @@ create table if not exists exercises (
 -- Migración idempotente para BDs creadas antes de existir la columna
 -- (create table if not exists no añade columnas a una tabla ya creada).
 alter table exercises add column if not exists instructions text;
+-- Autopausa: el timer se para al inicio de este ejercicio hasta pulsar
+-- Continuar. Preferencia del usuario: seed.sql NO la toca (se re-aplica en
+-- cada deploy y la borraría).
+alter table exercises add column if not exists autopause boolean not null default false;
 
 -- ---------------------------------------------------------------------------
 -- Sesiones. Una por entrenamiento (timer o manual).

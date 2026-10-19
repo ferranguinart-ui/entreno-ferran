@@ -11,6 +11,7 @@ import {
   writeMuted,
   TimerEngine,
   finishCue,
+  autopauseState,
 } from "./timer.js";
 
 const day = {
@@ -393,6 +394,191 @@ test("engine: terminar desde pausa no cuenta el tiempo en pausa", () => {
 });
 
 // ---------------------- ajustes tras la revisión (sección 3) ----------------------
+// -------------------------------- autopausa --------------------------------
+// Día con autopausa en "Aperturas" (11) y en el remate (14).
+const apDay = {
+  ...day,
+  exercises: day.exercises.map((e) => ({ ...e, autopause: e.id === 11 || e.id === 14 })),
+};
+const apSteps = () => buildSteps(apDay, [], { rounds: 1, remates: [] }); // P(40) D(25) A(40) D(25) R(40)
+
+test("autopausa: buildSteps marca solo los pasos de trabajo de ejercicios con autopause", () => {
+  const s = buildSteps(apDay, warm, { rounds: 2, remates: [apDay.exercises[3]] });
+  const marked = s.filter((x) => x.autopause).map((x) => x.name);
+  assert.deepEqual(marked, ["Aperturas", "Aperturas", "Flexiones"]);
+  assert.ok(s.every((x) => (x.kind === "work" ? typeof x.autopause === "boolean" : !x.autopause)));
+});
+
+test("autopausa: sin la columna (BD antigua) no hay autopausa", () => {
+  assert.ok(buildSteps(day, warm, { rounds: 1, remates: [] }).every((x) => !x.autopause));
+});
+
+test("autopausa: primaryLabel y señal de espera", () => {
+  assert.equal(primaryLabel("waiting"), "Continuar");
+  const c = stepStartCues({ kind: "autopause", name: "Aperturas" });
+  assert.deepEqual(c.tones, TONES.ready);
+  assert.match(c.speak, /Aperturas/);
+});
+
+test("autopausa: al acabar el descanso se queda esperando con el paso entero", () => {
+  const { e, calls } = mkEngine(apSteps());
+  e.muted = true;
+  e.start();
+  const seen = spyCues(e);
+  e._jump(1); // descanso previo a Aperturas, corriendo
+  seen.length = 0;
+  e.stepEndsAt = Date.now() - 1; // termina el descanso
+  e._loop();
+  assert.equal(e.i, 2);
+  assert.equal(e.status, "waiting");
+  assert.equal(e.running, false);
+  assert.equal(e.remainingMs, 40_000);
+  assert.deepEqual(seen, ["Aperturas"], "suena la señal de espera");
+  assert.equal(calls.step.at(-1), 2);
+  assert.deepEqual(calls.tick.at(-1), [40, 2], "el dial muestra el paso entero");
+  // Continuar: arranca el trabajo con sus señales normales.
+  seen.length = 0;
+  e.toggle();
+  assert.equal(e.status, "running");
+  assert.equal(e.i, 2);
+  assert.ok(Math.abs(e.stepEndsAt - Date.now() - 40_000) < 50);
+  assert.deepEqual(seen, ["Aperturas"]);
+  e.stop();
+});
+
+test("autopausa: la señal de espera es la de kind autopause", () => {
+  const { e } = mkEngine(apSteps());
+  e.muted = true;
+  e.start();
+  const kinds = [];
+  e._stepCues = (step) => kinds.push(step.kind);
+  e._jump(1);
+  kinds.length = 0;
+  e.stepEndsAt = Date.now() - 1;
+  e._loop();
+  assert.deepEqual(kinds, ["autopause"]);
+  e.toggle();
+  assert.deepEqual(kinds, ["autopause", "work"]);
+  e.stop();
+});
+
+test("autopausa: skip manual hacia un paso con autopausa no espera", () => {
+  const { e } = mkEngine(apSteps());
+  e.muted = true;
+  e.start();
+  e.skip();
+  e.skip(); // a Aperturas
+  assert.equal(e.i, 2);
+  assert.equal(e.status, "running");
+  e.stop();
+});
+
+test("autopausa: skip/back desde la espera pasa a pausa normal", () => {
+  const { e } = mkEngine(apSteps());
+  e.muted = true;
+  e.start();
+  e._jump(1);
+  e.stepEndsAt = Date.now() - 1;
+  e._loop();
+  assert.equal(e.status, "waiting");
+  e.skip();
+  assert.equal(e.i, 3);
+  assert.equal(e.status, "paused");
+  e.stop();
+});
+
+test("autopausa: al volver de segundo plano se detiene en el primer paso con autopausa", () => {
+  const { e } = mkEngine(apSteps());
+  e.muted = true;
+  e.start();
+  e.stepEndsAt = Date.now() - 200_000; // se habría pasado todo el entreno
+  e._loop();
+  assert.equal(e.i, 2);
+  assert.equal(e.status, "waiting");
+  assert.equal(e.finished, false);
+  e.stop();
+});
+
+test("autopausa: start() sobre un paso 0 con autopausa arranca sin esperar", () => {
+  const s = apSteps().slice(2); // empieza en Aperturas
+  const { e } = mkEngine(s);
+  e.muted = true;
+  e.start();
+  assert.equal(e.status, "running");
+  e.stop();
+});
+
+test("autopausa: el tiempo en espera no cuenta en durationSec", () => {
+  const { e } = mkEngine(apSteps());
+  e.muted = true;
+  e.start();
+  e._jump(1);
+  e.stepEndsAt = Date.now() - 1;
+  e._loop();
+  e.pauseStart -= 120_000; // lleva 2 minutos esperando
+  e.toggle();
+  assert.ok(e.durationSec() < 5, `duración ${e.durationSec()}`);
+  e.stop();
+});
+
+test("autopausa: estado del interruptor de todo el entreno", () => {
+  const e = (v) => ({ autopause: v });
+  assert.equal(autopauseState([e(true), e(true)]), "all");
+  assert.equal(autopauseState([e(false), e(undefined)]), "none");
+  assert.equal(autopauseState([e(true), e(false)]), "some");
+  assert.equal(autopauseState([]), "none");
+});
+
+test("autopausa: en espera se re-adquiere el Wake Lock al volver a primer plano", async () => {
+  const { e } = mkEngine(apSteps());
+  e.muted = true;
+  e.start();
+  e._jump(1);
+  e.stepEndsAt = Date.now() - 1;
+  e._loop();
+  assert.equal(e.status, "waiting");
+  let reqs = 0, released = 0;
+  const lock = { released: false, release() { released++; } };
+  const nv = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", { value: { wakeLock: { request: async () => (reqs++, lock) } }, configurable: true });
+  try {
+    e._wake = null;
+    e._onVis();
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(reqs, 1);
+    assert.equal(released, 0, "en espera el lock se conserva");
+    assert.equal(e.status, "waiting", "no arranca el bucle");
+  } finally {
+    if (nv) Object.defineProperty(globalThis, "navigator", nv);
+    else delete globalThis.navigator;
+    e._wake = null;
+    e.stop();
+  }
+});
+
+test("autopausa: al volver de segundo plano la espera empieza cuando acabó el descanso", () => {
+  const { e } = mkEngine(apSteps());
+  e.muted = true;
+  e.start();
+  e._jump(1); // descanso de 25 s
+  e.stepEndsAt = Date.now() - 300_000; // acabó hace 5 min con la pantalla bloqueada
+  e._loop();
+  assert.equal(e.status, "waiting");
+  assert.ok(Date.now() - e.pauseStart >= 299_000, "los 5 min cuentan como espera");
+  e.stop();
+});
+
+test("autopausa: stop() desde la espera limpia el estado", () => {
+  const { e } = mkEngine(apSteps());
+  e.muted = true;
+  e.start();
+  e._jump(1);
+  e.stepEndsAt = Date.now() - 1;
+  e._loop();
+  e.stop();
+  assert.equal(e.waiting, false);
+});
+
 test("stepStartCues: fin de bloque (hay remate) -> doble pitido de descanso + Bloque terminado", () => {
   assert.deepEqual(stepStartCues({ kind: "blockDone" }), { tones: TONES.rest, speak: "Bloque terminado" });
 });

@@ -108,3 +108,47 @@ def test_instructions_migration_is_idempotent(auth_client):
     _psql(db_url, "-f", schema)
     _psql(db_url, "-f", seed)
     _assert_all_instructions(auth_client)
+
+
+# ------------------------------- autopausa ---------------------------------
+def _exercises(client):
+    days = client.get("/api/bootstrap").json()["days"]
+    return {e["id"]: e for d in days for e in d["exercises"]}
+
+
+def test_autopause_default_off_and_requires_auth(client):
+    assert client.patch("/api/exercises/autopause", json={"updates": []}).status_code == 401
+
+
+def test_autopause_update(auth_client):
+    c = auth_client
+    exs = _exercises(c)
+    assert all(e["autopause"] is False for e in exs.values())
+    r = c.patch(
+        "/api/exercises/autopause",
+        json={"updates": [{"id": 11, "autopause": True}, {"id": 14, "autopause": True}]},
+    )
+    assert r.status_code == 200 and r.json() == {"updated": 2}
+    exs = _exercises(c)
+    assert [i for i, e in exs.items() if e["autopause"]] == [11, 14]
+    c.patch("/api/exercises/autopause", json={"updates": [{"id": 14, "autopause": False}]})
+    assert [i for i, e in _exercises(c).items() if e["autopause"]] == [11]
+    # id inexistente: no rompe, simplemente no actualiza nada
+    assert c.patch(
+        "/api/exercises/autopause", json={"updates": [{"id": 999, "autopause": True}]}
+    ).json() == {"updated": 0}
+
+
+def test_autopause_survives_deploy(auth_client):
+    """Cada deploy re-aplica schema.sql y seed.sql: la preferencia no se pierde
+    y la migración funciona sobre una BD sin la columna."""
+    c = auth_client
+    c.patch("/api/exercises/autopause", json={"updates": [{"id": 12, "autopause": True}]})
+    db_url = os.environ["DATABASE_URL"]
+    _psql(db_url, "-f", str(ROOT / "db" / "schema.sql"))
+    _psql(db_url, "-f", str(ROOT / "db" / "seed.sql"))
+    assert _exercises(c)[12]["autopause"] is True
+    _psql(db_url, "-c", "alter table exercises drop column autopause;")
+    _psql(db_url, "-f", str(ROOT / "db" / "schema.sql"))
+    _psql(db_url, "-f", str(ROOT / "db" / "seed.sql"))
+    assert all(e["autopause"] is False for e in _exercises(c).values())

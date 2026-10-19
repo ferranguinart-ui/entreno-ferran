@@ -1,5 +1,5 @@
 import { api } from "./api.js";
-import { buildSteps, TimerEngine, primaryLabel, readMuted, writeMuted } from "./timer.js";
+import { buildSteps, TimerEngine, primaryLabel, readMuted, writeMuted, autopauseState } from "./timer.js";
 import { dialText, ringFraction, changedIndices, beatAt } from "./fx.js";
 
 const app = document.getElementById("app");
@@ -155,6 +155,30 @@ function viewSetup(dayId) {
   if (!day) return (location.hash = "#/");
   let rounds = day.rounds;
   let deload = false;
+  // Autopausa: por ejercicio (main + remate); el interruptor general los cambia todos.
+  const apExercises = [...mainExercises(day), ...remateExercises(day)];
+  const setAutopause = (ids, on) => {
+    const updates = ids.map((id) => ({ id, autopause: on }));
+    // En memoria ya: vale para este entreno aunque no haya red.
+    for (const e of apExercises) if (ids.includes(e.id)) e.autopause = on;
+    api.setAutopause(updates).catch((err) => {
+      if (err.message === "no auth") return; // req() ya manda al login
+      toast(navigator.onLine === false
+        ? "Sin conexión: la autopausa vale solo para este entreno"
+        : "No se pudo guardar la autopausa: vale solo para este entreno");
+    });
+    paintAutopause();
+  };
+  // Repinta solo los interruptores (sin re-render: no salta el scroll ni el foco).
+  const paintAutopause = () => {
+    const st = autopauseState(apExercises);
+    const all = document.getElementById("ap-all");
+    all.checked = st === "all";
+    all.indeterminate = st === "some";
+    document.querySelectorAll(".ap-list .switch").forEach((el) => {
+      el.checked = !!apExercises.find((e) => e.id === +el.dataset.ex)?.autopause;
+    });
+  };
 
   const draw = () => {
     const shown = deload ? day.rounds_deload : rounds;
@@ -172,11 +196,34 @@ function viewSetup(dayId) {
           </div>
           <label class="row gap"><input type="checkbox" id="deload" ${deload ? "checked" : ""}/> Semana de deload (${day.rounds_deload} rondas)</label>
         </div>
+        <div class="card col gap ap">
+          <label class="switch-row">
+            <span><strong>Autopausa</strong><br />
+              <span class="muted small">Para antes del ejercicio hasta que pulses Continuar</span></span>
+            <input type="checkbox" role="switch" class="switch" id="ap-all" />
+          </label>
+          <div class="ap-list">
+            ${apExercises
+              .map(
+                (e) => `<label class="switch-row small">
+                  <span>${esc(e.name)}${e.block === "remate" ? ' <span class="muted">· remate</span>' : ""}</span>
+                  <input type="checkbox" role="switch" class="switch" data-ex="${e.id}" ${e.autopause ? "checked" : ""} />
+                </label>`
+              )
+              .join("")}
+          </div>
+        </div>
         <button class="primary big-btn" id="go">Empezar entreno</button>
       </div>`);
     document.getElementById("minus").onclick = () => { rounds = Math.max(day.rounds_min, rounds - 1); draw(); };
     document.getElementById("plus").onclick = () => { rounds = Math.min(day.rounds_max, rounds + 1); draw(); };
     document.getElementById("deload").onchange = (e) => { deload = e.target.checked; draw(); };
+    paintAutopause();
+    document.getElementById("ap-all").onchange = () =>
+      setAutopause(apExercises.map((e) => e.id), autopauseState(apExercises) !== "all");
+    document.querySelectorAll(".ap-list .switch").forEach((el) => {
+      el.onchange = () => setAutopause([+el.dataset.ex], el.checked);
+    });
     document.getElementById("go").onclick = () => {
       state.run = {
         day,
@@ -313,7 +360,8 @@ function viewRun() {
     $("pp").disabled = status === "done";
     // Antes de iniciar: "Preparado" en vez de la fase del primer paso.
     const step = e ? e.step : steps[0];
-    $("phase").textContent = status === "idle" ? "Preparado" : step.phase;
+    $("phase").textContent =
+      status === "idle" ? "Preparado" : status === "waiting" ? "Listo cuando quieras" : step.phase;
     $("runpane").dataset.status = status;
   };
 
