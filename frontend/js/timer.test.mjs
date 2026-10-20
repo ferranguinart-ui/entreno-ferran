@@ -409,6 +409,11 @@ test("autopausa: buildSteps marca solo los pasos de trabajo de ejercicios con au
   assert.ok(s.every((x) => (x.kind === "work" ? typeof x.autopause === "boolean" : !x.autopause)));
 });
 
+test("autopausa: cada paso sabe si el siguiente ejercicio se parará", () => {
+  const s = buildSteps(apDay, [], { rounds: 1, remates: [] }); // P D A D R
+  assert.deepEqual(s.map((x) => x.nextAutopause), [true, true, false, false, false]);
+});
+
 test("autopausa: sin la columna (BD antigua) no hay autopausa", () => {
   assert.ok(buildSteps(day, warm, { rounds: 1, remates: [] }).every((x) => !x.autopause));
 });
@@ -462,15 +467,56 @@ test("autopausa: la señal de espera es la de kind autopause", () => {
   e.stop();
 });
 
-test("autopausa: skip manual hacia un paso con autopausa no espera", () => {
+test("autopausa: llegar con skip (en marcha) también espera, con su señal", () => {
   const { e } = mkEngine(apSteps());
   e.muted = true;
   e.start();
-  e.skip();
-  e.skip(); // a Aperturas
+  const kinds = [];
+  e._stepCues = (step) => kinds.push(step.kind);
+  e.skip(); // descanso
+  e.skip(); // Aperturas (autopausa)
   assert.equal(e.i, 2);
+  assert.equal(e.status, "waiting");
+  assert.equal(e.remainingMs, 40_000);
+  assert.deepEqual(kinds, ["rest", "autopause"]);
+  e.toggle();
   assert.equal(e.status, "running");
   e.stop();
+});
+
+test("autopausa: skip en pausa hacia un paso con autopausa espera sin sonar y conserva el inicio de la pausa", () => {
+  const { e } = mkEngine(apSteps());
+  e.muted = true;
+  e.start();
+  e.skip(); // descanso, en marcha
+  e.pause();
+  const t0 = e.pauseStart;
+  const kinds = [];
+  e._stepCues = (step) => kinds.push(step.kind);
+  e.skip(); // Aperturas
+  assert.equal(e.status, "waiting");
+  assert.equal(e.pauseStart, t0);
+  assert.deepEqual(kinds, []);
+  e.stop();
+});
+
+test("autopausa: back hacia un paso con autopausa también espera", () => {
+  const { e } = mkEngine(apSteps());
+  e.muted = true;
+  e.start();
+  e._jump(3); // descanso posterior a Aperturas
+  e.back(); // vuelve a Aperturas
+  assert.equal(e.i, 2);
+  assert.equal(e.status, "waiting");
+  e.stop();
+});
+
+test("autopausa: skip antes de Iniciar no espera (sigue idle)", () => {
+  const { e } = mkEngine(apSteps());
+  e.skip();
+  e.skip();
+  assert.equal(e.i, 2);
+  assert.equal(e.status, "idle");
 });
 
 test("autopausa: skip/back desde la espera pasa a pausa normal", () => {

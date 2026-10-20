@@ -77,6 +77,12 @@ export const api = {
   },
 
   pendingCount: () => readQ(PENDING_S).length + readQ(PENDING_M).length,
+  /** Entrenos en cola (sin subir) como {date, day_id}: cuentan en racha y rotación. */
+  pendingSessions: () =>
+    readQ(PENDING_S)
+      .map((p) => p.session)
+      .filter(Boolean)
+      .map(({ date, day_id }) => ({ date, day_id })),
 
   async flushPending() {
     for (const [k, push] of [

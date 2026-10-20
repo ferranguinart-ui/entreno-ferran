@@ -86,6 +86,7 @@ export function buildSteps(day, warmupExercises, { rounds, remates }) {
     const nxt = steps.slice(i + 1).find((s) => s.kind === "work" || s.kind === "warmup");
     steps[i].nextName = nxt ? nxt.name : "Fin";
     steps[i].nextInstructions = nxt ? nxt.instructions ?? null : null;
+    steps[i].nextAutopause = !!nxt?.autopause;
   }
   return steps;
 }
@@ -299,7 +300,7 @@ export class TimerEngine {
   /** Fin natural de un paso → el siguiente tiene autopausa: parado con el
    *  paso entero hasta Continuar. Como una pausa (no cuenta en durationSec),
    *  pero mantiene el Wake Lock: el entreno sigue. */
-  _autoPause(since = Date.now()) {
+  _autoPause(since = Date.now(), cue = true) {
     caf(this._raf);
     this.running = false;
     this.waiting = true;
@@ -307,7 +308,7 @@ export class TimerEngine {
     // Desde que acabó el descanso (puede ser en el pasado si venimos de
     // segundo plano): ese rato no cuenta como entreno.
     this.pauseStart = Math.min(Date.now(), since);
-    this._stepCues({ kind: "autopause", name: this.step.name });
+    if (cue) this._stepCues({ kind: "autopause", name: this.step.name });
     this.onStep(this.step, this.i);
     this.onTick(this.step.seconds, this.step, this.i, this.remainingMs);
   }
@@ -346,6 +347,11 @@ export class TimerEngine {
     this.stepEndsAt = Date.now() + this.step.seconds * 1000;
     this.remainingMs = this.step.seconds * 1000; // por si se reanuda desde pausa
     this._lastSec = null;
+    // Llegues como llegues (también con skip/back), un paso con autopausa espera.
+    // En pausa se conserva el inicio de la pausa y no suena nada.
+    if (this.started && this.step.autopause) {
+      return this.running ? this._autoPause() : this._autoPause(this.pauseStart, false);
+    }
     if (this.running) this._stepCues(this.step);
     this.onStep(this.step, this.i);
     if (this.running) this._loop();

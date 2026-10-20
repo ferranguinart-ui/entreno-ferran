@@ -152,3 +152,13 @@ def test_autopause_survives_deploy(auth_client):
     _psql(db_url, "-f", str(ROOT / "db" / "schema.sql"))
     _psql(db_url, "-f", str(ROOT / "db" / "seed.sql"))
     assert all(e["autopause"] is False for e in _exercises(c).values())
+
+
+def test_static_files_are_revalidated(client):
+    """Sin Cache-Control, Safari reutiliza JS viejo por heurística y puede mezclar
+    versiones (app.js nuevo con timer.js antiguo). Todo el shell: no-cache."""
+    for path in ("/", "/js/app.js", "/js/timer.js", "/sw.js", "/styles.css"):
+        r = client.get(path)
+        assert r.status_code == 200, path
+        assert r.headers.get("cache-control") == "no-cache", path
+    assert "no-cache" not in (client.get("/api/me").headers.get("cache-control") or "")

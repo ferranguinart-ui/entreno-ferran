@@ -1,8 +1,10 @@
 import { api } from "./api.js";
 import { buildSteps, TimerEngine, primaryLabel, readMuted, writeMuted, autopauseState } from "./timer.js";
 import { dialText, ringFraction, changedIndices, beatAt } from "./fx.js";
+import { weekProgress, nextDayId } from "./stats.js";
 
 const app = document.getElementById("app");
+const APP_VERSION = "10"; // = número de la caché en sw.js; se muestra en el inicio
 const state = { boot: null, run: null, engine: null };
 
 const todayISO = () => new Date().toLocaleDateString("sv-SE"); // YYYY-MM-DD local
@@ -58,6 +60,14 @@ const ICON = {
   soundOff: ico(SPEAKER + '<line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/>'),
   chevronLeft: ico('<path d="m15 18-6-6 6-6"/>'),
   minus: ico('<path d="M5 12h14"/>'),
+  chevronRight: ico('<path d="m9 18 6-6-6-6"/>'),
+  play: ico('<polygon points="6 3 20 12 6 21 6 3"/>'),
+  logout: ico('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>'),
+  flame: ico('<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>'),
+  chart: ico('<path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>'),
+  pen: ico('<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>'),
+  ruler: ico('<path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/>'),
+  history: ico('<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>'),
   plus: ico('<path d="M5 12h14"/><path d="M12 5v14"/>'),
 };
 
@@ -96,7 +106,7 @@ async function router() {
         return;
       }
       state.boot = await api.bootstrap();
-      api.flushPending();
+      state.flush = api.flushPending(); // el inicio lo espera antes de pedir sesiones
     }
   }
   if (state.engine && hash !== "#/run") {
@@ -144,41 +154,123 @@ function viewLogin() {
 }
 
 // ------------------------------- home ----------------------------------
-function viewHome() {
+// Últimas sesiones (solo fecha y día) en localStorage: el inicio pinta la
+// racha y el "entreno de hoy" al instante y sin red; luego se refresca.
+const RECENT_KEY = "entreno.recent";
+const readRecent = () => {
+  try {
+    return JSON.parse(localStorage.getItem(RECENT_KEY) || "null");
+  } catch (_) {
+    return null;
+  }
+};
+const writeRecent = (list) => {
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list.map(({ date, day_id }) => ({ date, day_id }))));
+  } catch (_) {}
+};
+const PLAN_DAYS = [1, 2, 3, 4];
+const estMinutes = (day) =>
+  Math.round(
+    buildSteps(day, warmupExercises(), { rounds: day.rounds, remates: [] }).reduce((a, x) => a + x.seconds, 0) / 60
+  );
+const RING_S = 2 * Math.PI * 18; // anillo semanal (r=18 en un viewBox de 44)
+
+function homeHTML(serverSessions) {
   const pend = api.pendingCount();
-  const cards = state.boot.days
-    .filter((d) => d.id >= 1)
-    .map((d) => {
-      const target = d.id === 5 ? "#/manual" : `#/setup/${d.id}`;
-      const mus = mainExercises(d).map((e) => e.name).slice(0, 4).join(" · ");
-      return `<a class="card day" href="${target}">
-        <div class="row between"><strong>Día ${d.id} — ${esc(d.name)}</strong>
-          <span class="pill">${d.rounds} rondas · ${d.work_sec}s</span></div>
-        <div class="muted small">${esc(mus || d.focus || "Registro manual")}</div>
-      </a>`;
-    })
-    .join("");
-  h(`
-    <div class="pane">
-      <header class="row between">
+  const known = Array.isArray(serverSessions);
+  // Los entrenos en cola (sin red) van primero: son los más recientes.
+  const sessions = known ? [...api.pendingSessions(), ...serverSessions] : null;
+  const wk = weekProgress(known ? sessions : [], todayISO());
+  const todayId = nextDayId(known ? sessions : [], PLAN_DAYS);
+  const today = dayById(todayId);
+  const frac = Math.min(1, wk.done / wk.goal);
+  const trainedToday = known && sessions.some((x) => String(x.date).slice(0, 10) === todayISO());
+  const dayCard = (d) => {
+    const target = d.id === 5 ? "#/manual" : `#/setup/${d.id}`;
+    const mus = mainExercises(d).map((e) => e.name).slice(0, 4).join(" · ");
+    return `<a class="card day" href="${target}" style="--day: var(--d${d.id})">
+      <div class="row between"><strong>Día ${d.id} — ${esc(d.name)}</strong>
+        ${d.id === 5 ? `<span class="pill">registro</span>` : `<span class="pill">${d.rounds} rondas · ${d.work_sec}s</span>`}</div>
+      <div class="muted small">${esc(mus || d.focus || "Registro manual")}</div>
+    </a>`;
+  };
+  return `
+    <div class="pane home">
+      <header class="row between home-top">
         <h1 class="brand">Entreno</h1>
-        <button class="ghost" id="out">Salir</button>
+        <button class="glass round" id="out" aria-label="Cerrar sesión" title="Cerrar sesión">${ICON.logout}</button>
       </header>
       ${pend ? `<div class="note warn">${pend} guardado(s) sin subir — se enviarán al reconectar</div>` : ""}
-      <div class="day-list">${cards}</div>
-      <div class="nav-grid mt">
-        <a class="btn" href="#/dashboard">Dashboard</a>
-        <a class="btn" href="#/manual">Registrar sesión manual</a>
-        <a class="btn" href="#/measure">Medidas corporales</a>
-        <a class="btn" href="#/history">Historial</a>
+      <section class="card week ${!known ? "skel" : wk.done >= wk.goal ? "complete" : ""}" aria-label="Progreso semanal">
+        <svg class="wring" viewBox="0 0 44 44" aria-hidden="true">
+          <circle class="ring-track" cx="22" cy="22" r="18" />
+          <circle class="wring-fill" cx="22" cy="22" r="18"
+            stroke-dasharray="${RING_S}" stroke-dashoffset="${RING_S * (1 - frac)}" />
+        </svg>
+        <div class="week-num"><b>${wk.done}</b><span>/${wk.goal}</span></div>
+        <div class="col week-text">
+          <strong>${!known ? "Cargando tu semana…" : wk.done >= wk.goal ? "¡Semana cumplida!" : `Esta semana: ${wk.done} de ${wk.goal}`}</strong>
+          <span class="muted small streak">${ICON.flame}${
+            wk.streak ? `Racha: ${wk.streak} ${wk.streak === 1 ? "semana" : "semanas"} cumpliendo` : `Cumple ${wk.goal} días y empieza una racha`
+          }</span>
+        </div>
+      </section>
+      ${
+        today && known
+          ? `<a class="card today" href="#/setup/${today.id}" style="--day: var(--d${today.id})">
+        <span class="eyebrow">${trainedToday ? "Hoy ya has entrenado · siguiente" : "Entreno de hoy"}</span>
+        <strong class="today-name">Día ${today.id} — ${esc(today.name)}</strong>
+        <span class="muted small">${esc(mainExercises(today).map((e) => e.name).join(" · "))}</span>
+        <span class="row between today-foot">
+          <span class="pill">${today.rounds} rondas · ~${estMinutes(today)} min</span>
+          <span class="today-go">${ICON.play} Empezar</span>
+        </span>
+      </a>`
+          : ""
+      }
+      <h3 class="section-title">Todos los días</h3>
+      <div class="day-list">${state.boot.days.filter((d) => d.id >= 1).map(dayCard).join("")}</div>
+      <div class="nav-grid">
+        <a class="btn" href="#/dashboard">${ICON.chart}Dashboard</a>
+        <a class="btn" href="#/manual">${ICON.pen}Sesión manual</a>
+        <a class="btn" href="#/measure">${ICON.ruler}Medidas</a>
+        <a class="btn" href="#/history">${ICON.history}Historial</a>
       </div>
-    </div>`);
-  document.getElementById("out").onclick = async () => {
-    await api.logout();
-    state.boot = null;
-    location.hash = "#/login";
-    router();
+      <div class="muted small version">Entreno v${APP_VERSION}</div>
+    </div>`;
+}
+
+function viewHome() {
+  const bind = () => {
+    document.getElementById("out").onclick = async () => {
+      await api.logout();
+      state.boot = null;
+      try {
+        storage()?.removeItem(RECENT_KEY);
+      } catch (_) {}
+      location.hash = "#/login";
+      router();
+    };
   };
+  const first = homeHTML(readRecent());
+  h(first);
+  bind();
+  // Tras subir la cola pendiente (si la hay), para que no falte nada.
+  Promise.resolve(state.flush)
+    .catch(() => {})
+    .then(() => api.sessions(200)) // ~1 año a 4/semana: la racha no se trunca
+    .then((list) => {
+      writeRecent(list);
+      if (location.hash !== "#/" && location.hash !== "") return; // ya se ha ido
+      const html = homeHTML(list);
+      if (html !== first) {
+        app.classList.remove("entering"); // repintar sin repetir la animación
+        h(html);
+        bind();
+      }
+    })
+    .catch(() => {}); // sin red: se queda con lo cacheado
 }
 
 // ------------------------------- setup ---------------------------------
@@ -364,7 +456,7 @@ function viewRun() {
     $("exname").textContent = step.name;
     $("exmus").textContent = step.muscle || step.note || "";
     $("exinfo").textContent = (step.kind === "rest" ? step.nextInstructions : step.instructions) || "";
-    $("next").textContent = "Siguiente: " + step.nextName;
+    $("next").textContent = "Siguiente: " + step.nextName + (step.nextAutopause ? " · se parará" : "");
     lastSec = null;
     setDial(step.seconds);
     setRing(step.seconds * 1000, step);

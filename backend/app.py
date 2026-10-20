@@ -68,6 +68,16 @@ async def _ensure_seed_user() -> None:
 app = FastAPI(lifespan=lifespan)
 
 
+@app.middleware("http")
+async def revalidate_shell(request: Request, call_next):
+    # Sin Cache-Control, Safari reutiliza JS viejo por heurística y puede mezclar
+    # versiones de módulos tras un deploy. El shell se revalida siempre (ETag → 304).
+    resp = await call_next(request)
+    if not request.url.path.startswith("/api/"):
+        resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
 # ----------------------------- auth dep ---------------------------------
 async def current_user(request: Request) -> str:
     raw = request.cookies.get(COOKIE_NAME)

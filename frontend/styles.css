@@ -29,6 +29,12 @@
   --c-rest: #4d9bff;
   --c-warm: #ffb547;
   --c-ink: #08110c;          /* texto sobre color de fase */
+  /* Color por tipo de día (inicio, historial, dashboard). */
+  --d1: #ff7a59;             /* Empuje */
+  --d2: #ffc145;             /* HIIT + core */
+  --d3: #4d9bff;             /* Tracción */
+  --d4: #a873ff;             /* Piernas + core */
+  --d5: #9aa3b2;             /* Libre */
   --phase: var(--c-work);    /* acento fuera del runner (sin depender de @property) */
   --glass: #ffffff14;
   --glass-line: #ffffff1f;
@@ -214,13 +220,80 @@ button:active:not(:disabled) { transform: scale(0.97); }
   .ghost:hover { color: var(--fg); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .pane, a.card, .btn, button { animation: none !important; transition: none !important; }
+  .pane, a.card, .btn, button, .wring-fill { animation: none !important; transition: none !important; }
 }
 
 /* -------------------- home -------------------- */
+.round { width: 44px; height: 44px; padding: 0; border-radius: 999px; }
+.round .ico { width: 20px; height: 20px; }
+.version { text-align: center; opacity: 0.6; margin-top: 8px; }
+.section-title { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-top: 6px; }
+
+/* Progreso semanal: mini anillo (mismo trazo que el dial del runner). */
+.week { display: grid; grid-template-columns: 64px 1fr; align-items: center; column-gap: 14px; position: relative; }
+.wring { grid-area: 1 / 1; width: 64px; height: 64px; transform: rotate(-90deg); overflow: visible; }
+.wring circle { fill: none; stroke-width: 5; }
+.wring-fill { stroke: var(--c-work); stroke-linecap: round; transition: stroke-dashoffset var(--dur-slow) var(--ease-out); }
+.week.complete .wring-fill { filter: drop-shadow(0 0 4px var(--c-work)); }
+.week.skel :is(.wring, .week-num, .streak) { opacity: 0.35; }
+.week-num { grid-area: 1 / 1; text-align: center; font-variant-numeric: tabular-nums; }
+.week-num b { font-size: 20px; font-weight: 800; }
+.week-num span { color: var(--muted); font-size: 12px; }
+.week-text { gap: 2px; }
+.streak { display: flex; align-items: center; gap: 6px; }
+.streak .ico { width: 16px; height: 16px; color: var(--c-warm); flex: none; }
+
+/* Entreno de hoy: tarjeta destacada con el color del día. */
+.today {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px;
+  border-color: color-mix(in srgb, var(--day) 45%, transparent);
+  background:
+    radial-gradient(120% 90% at 100% 0%, color-mix(in srgb, var(--day) 26%, transparent), transparent 60%),
+    color-mix(in srgb, var(--card) 78%, transparent);
+  box-shadow: 0 0 28px -10px var(--day), inset 0 1px 0 #ffffff0d;
+}
+.eyebrow { font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--day); }
+.today-name { font-size: 22px; font-weight: 800; }
+.today-foot { margin-top: 6px; }
+.today-go {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--day);
+  color: var(--c-ink);
+  font-weight: 800;
+  padding: 8px 14px;
+  border-radius: 999px;
+}
+.today-go .ico { width: 14px; height: 14px; fill: currentColor; }
+
 .day-list { display: flex; flex-direction: column; gap: 10px; }
-.day-list .card.day { display: flex; flex-direction: column; gap: 4px; }
-.nav-grid { display: flex; flex-direction: column; gap: 10px; }
+.day-list .card.day {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: relative;
+  padding-left: 20px;
+  overflow: hidden;
+}
+/* Barra del color del día a la izquierda. */
+.day-list .card.day::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 4px;
+  border-radius: 0 4px 4px 0;
+  background: var(--day);
+  box-shadow: 0 0 10px var(--day);
+}
+.nav-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 4px; }
+.nav-grid .btn { flex-direction: column; gap: 6px; padding: 16px 10px; font-size: 14px; }
+.nav-grid .btn .ico { width: 22px; height: 22px; }
 
 /* -------------------- setup -------------------- */
 .stepper { display: flex; align-items: center; gap: 18px; }
@@ -590,8 +663,6 @@ th { color: var(--muted); font-weight: 500; }
   .pane { max-width: 560px; padding-top: 28px; gap: 16px; }
   .brand { font-size: 28px; }
 
-  .nav-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-  .nav-grid .btn { padding: 18px 14px; }
 
   .cw { height: 240px; }
 }
@@ -602,6 +673,18 @@ th { color: var(--muted); font-weight: 500; }
 @media (min-width: 960px) {
   .pane { max-width: 480px; padding-top: 44px; }
   .pane.center { padding-top: 0; }
+
+  /* inicio ancho: semana + hoy arriba, días en 2 columnas, accesos en 4 */
+  .pane.home {
+    display: grid;
+    max-width: 920px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+    gap: 16px;
+  }
+  .pane.home > :is(.home-top, .note, .section-title, .day-list, .nav-grid, .version) { grid-column: 1 / -1; }
+  .home .day-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .home .nav-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 
   /* dashboard ancho, en rejilla */
   .pane.dash {
