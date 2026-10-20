@@ -237,7 +237,7 @@ button:active:not(:disabled) { transform: scale(0.97); }
 .wring { grid-area: 1 / 1; width: 64px; height: 64px; transform: rotate(-90deg); overflow: visible; }
 .wring circle { fill: none; stroke-width: 5; }
 .wring-fill { stroke: var(--c-work); stroke-linecap: round; transition: stroke-dashoffset var(--dur-slow) var(--ease-out); }
-.week.complete .wring-fill { filter: drop-shadow(0 0 4px var(--c-work)); }
+.week.complete .wring-fill { stroke-width: 6; } /* sin filter: WebKit lo ignora en elementos SVG */
 .week.skel :is(.wring, .week-num, .streak) { opacity: 0.35; }
 .week-num { grid-area: 1 / 1; text-align: center; font-variant-numeric: tabular-nums; }
 .week-num b { font-size: 20px; font-weight: 800; }
@@ -581,6 +581,136 @@ th { color: var(--muted); font-weight: 500; }
   z-index: 10;
 }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* -------------------- login -------------------- */
+.login { align-items: center; text-align: center; gap: 10px; }
+.login > * { width: 100%; }
+.login-mark { width: 72px !important; height: 72px; margin: 0 auto 4px; }
+.login-mark svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.login-mark circle { fill: none; stroke-width: 5; }
+.login-mark .wring-fill { stroke: var(--c-work); stroke-linecap: round; animation: spin-in var(--dur-slow) var(--ease-out); }
+@keyframes spin-in { from { stroke-dashoffset: 113; } }
+.login-title { font-size: 34px; margin: 0 auto; }
+.login-sub { margin: 0 0 8px; }
+.login-card { text-align: left; }
+.pin-wrap { position: relative; display: block; height: 64px; cursor: text; }
+.pin-dots {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 14px;
+  height: 100%;
+  border-radius: 14px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
+}
+.pin-dots i { width: 14px; height: 14px; border-radius: 50%; border: 2px solid #ffffff40; transition: background var(--dur-fast), transform var(--dur-fast) var(--ease-spring); }
+.pin-dots i.on { background: var(--c-work); border-color: var(--c-work); transform: scale(1.1); box-shadow: 0 0 8px var(--c-work); }
+input.pin-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  font-size: 16px; /* evita el zoom de iOS al enfocar */
+  cursor: text;
+}
+.pin-input:focus + .pin-dots, .pin-wrap:focus-within .pin-dots { border-color: var(--c-work); box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-work) 30%, transparent); }
+.shake { animation: shake 0.4s var(--ease-out); }
+@keyframes shake { 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
+
+/* -------------------- fin de entreno y registro -------------------- */
+.confetti { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 20; }
+.done-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  padding: 22px 16px 16px;
+  border-color: color-mix(in srgb, var(--c-work) 40%, transparent);
+  background:
+    radial-gradient(90% 70% at 50% 0%, color-mix(in srgb, var(--c-work) 22%, transparent), transparent 70%),
+    color-mix(in srgb, var(--card) 78%, transparent);
+}
+.done-hero h2 { font-size: 24px; font-weight: 800; }
+.done-badge {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--c-work);
+  color: var(--c-ink);
+  box-shadow: 0 0 24px var(--c-work);
+  animation: pop 0.5s var(--ease-spring);
+}
+.done-badge .ico { width: 30px; height: 30px; stroke-width: 3; }
+@keyframes pop { from { transform: scale(0.3); opacity: 0; } }
+.sum-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; width: 100%; margin-top: 10px; }
+.sum-tile { display: flex; flex-direction: column; gap: 2px; padding: 10px 6px; border-radius: 12px; background: var(--glass); border: 1px solid var(--glass-line); }
+.sum-tile b { font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.sum-tile .kpi-label { font-size: 11px; }
+
+.rep-card { display: flex; align-items: center; justify-content: space-between; gap: 10px; position: relative; padding-left: 20px; overflow: hidden; }
+.rep-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 4px;
+  border-radius: 0 4px 4px 0;
+  background: var(--day);
+}
+.rep-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rep-info b { color: var(--fg); }
+.rep-step { display: flex; align-items: center; gap: 6px; flex: none; }
+.rep-step .round { width: 44px; height: 44px; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+.rep-step .round .ico { width: 18px; height: 18px; }
+.rep-step input.reps { width: 54px; padding: 8px 2px; }
+input.reps::-webkit-outer-spin-button, input.reps::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+input.reps { -moz-appearance: textfield; }
+.tick { animation: roll var(--dur-fast) var(--ease-out); }
+
+/* -------------------- sesión manual -------------------- */
+.day-pick { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.pick { display: flex; align-items: center; gap: 10px; cursor: pointer; color: var(--fg); padding: 14px; transition: border-color var(--dur-fast), background var(--dur-fast), transform var(--dur-fast) var(--ease-out); }
+.pick input { position: absolute; opacity: 0; pointer-events: none; }
+.pick:has(input:checked) { border-color: var(--day); background: color-mix(in srgb, var(--day) 16%, color-mix(in srgb, var(--card) 78%, transparent)); box-shadow: 0 0 18px -8px var(--day); }
+.pick:has(input:focus-visible) { outline: 2px solid var(--c-work); outline-offset: 2px; }
+.pick:active { transform: scale(0.98); }
+
+/* -------------------- medidas -------------------- */
+.meas-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.meas { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.meas-input { display: flex; align-items: baseline; gap: 6px; }
+.meas-input input {
+  font-size: 30px;
+  font-weight: 800;
+  padding: 6px 8px;
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+}
+.meas-input span { color: var(--muted); font-weight: 600; }
+.meas-input input::placeholder { color: #ffffff38; font-weight: 700; }
+.meas .spark { height: 26px; }
+
+/* -------------------- historial -------------------- */
+.tl-week { display: flex; flex-direction: column; gap: 8px; }
+.tl-head { display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; margin-top: 6px; }
+.pill.ok { color: var(--fg); border-color: var(--c-work); background: color-mix(in srgb, var(--c-work) 18%, transparent); }
+.tl { list-style: none; margin: 0; padding: 0 0 0 22px; position: relative; display: flex; flex-direction: column; gap: 8px; }
+/* Conector vertical de la línea de tiempo. */
+.tl::before { content: ""; position: absolute; left: 7px; top: 14px; bottom: 14px; width: 2px; border-radius: 2px; background: var(--glass-line); }
+.tl-item { position: relative; }
+.tl-dot { position: absolute; left: -20px; top: 18px; width: 12px; height: 12px; border-radius: 50%; background: var(--day); box-shadow: 0 0 0 3px var(--bg), 0 0 10px var(--day); }
+.tl-card { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .shake, .done-badge, .tick, .login-mark .wring-fill, .pin-dots i, .pick { animation: none !important; transition: none !important; }
+}
 
 /* -------------------- dashboard --------------------
    Referencias 21st.dev: KPI Tile, Tweenly Chart KPI, Calendar Heatmap.

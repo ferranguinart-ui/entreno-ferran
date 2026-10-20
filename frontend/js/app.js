@@ -1,7 +1,7 @@
 import { api } from "./api.js";
 import { buildSteps, TimerEngine, primaryLabel, readMuted, writeMuted, autopauseState } from "./timer.js";
 import { dialText, ringFraction, changedIndices, beatAt } from "./fx.js";
-import { weekProgress, nextDayId } from "./stats.js";
+import { weekProgress, nextDayId, mondayISO, stepValue, holdInterval, groupByWeek } from "./stats.js";
 import {
   withAvg,
   deltaOver,
@@ -15,7 +15,7 @@ import {
 } from "./dash.js";
 
 const app = document.getElementById("app");
-const APP_VERSION = "12"; // = número de la caché en sw.js; se muestra en el inicio
+const APP_VERSION = "13"; // = número de la caché en sw.js; se muestra en el inicio
 const state = { boot: null, run: null, engine: null };
 
 const todayISO = () => new Date().toLocaleDateString("sv-SE"); // YYYY-MM-DD local
@@ -74,6 +74,7 @@ const ICON = {
   chevronRight: ico('<path d="m9 18 6-6-6-6"/>'),
   expand: ico('<path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/>'),
   close: ico('<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'),
+  check: ico('<path d="M20 6 9 17l-5-5"/>'),
   play: ico('<polygon points="6 3 20 12 6 21 6 3"/>'),
   logout: ico('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>'),
   flame: ico('<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>'),
@@ -144,26 +145,50 @@ async function router() {
 window.addEventListener("hashchange", router);
 
 // ------------------------------- login ---------------------------------
+// PIN en puntos (referencia 21st.dev: OTP PIN Field). El input real está
+// encima, transparente: el toque abre el teclado y los gestores de claves funcionan.
 function viewLogin() {
   h(`
-    <div class="pane center">
-      <h1 class="brand">Entreno</h1>
-      <form id="f" class="card col gap">
-        <label>PIN</label>
-        <input id="pin" type="password" inputmode="numeric" autocomplete="off" autofocus />
-        <button class="primary">Entrar</button>
-        <p id="err" class="err"></p>
+    <div class="pane center login">
+      <div class="login-mark" aria-hidden="true">
+        <svg viewBox="0 0 44 44"><circle class="ring-track" cx="22" cy="22" r="18" /><circle class="wring-fill" cx="22" cy="22" r="18" stroke-dasharray="${RING_S}" stroke-dashoffset="${RING_S * 0.25}" /></svg>
+      </div>
+      <h1 class="brand login-title">Entreno</h1>
+      <p class="muted login-sub">Introduce tu PIN para empezar</p>
+      <form id="f" class="card col gap login-card">
+        <label class="pin-wrap" for="pin">
+          <span class="pin-dots" id="dots" aria-hidden="true"></span>
+          <input id="pin" class="pin-input" type="password" inputmode="numeric" autocomplete="current-password" maxlength="12" autofocus aria-label="PIN" />
+        </label>
+        <button class="primary big-btn">Entrar</button>
+        <p id="err" class="err" role="alert"></p>
       </form>
     </div>`);
+  const pin = document.getElementById("pin");
+  const dots = document.getElementById("dots");
+  const paintDots = () => {
+    const n = pin.value.length;
+    const slots = Math.max(4, n);
+    dots.innerHTML = Array.from({ length: slots }, (_, i) => `<i class="${i < n ? "on" : ""}"></i>`).join("");
+  };
+  pin.addEventListener("input", () => {
+    document.getElementById("err").textContent = "";
+    paintDots();
+  });
+  paintDots();
   document.getElementById("f").addEventListener("submit", async (e) => {
     e.preventDefault();
     try {
-      await api.login(document.getElementById("pin").value);
+      await api.login(pin.value);
       state.boot = null;
       location.hash = "#/";
       router();
     } catch (_) {
       document.getElementById("err").textContent = "PIN incorrecto";
+      replay(document.querySelector(".login-card"), "shake");
+      pin.value = "";
+      paintDots();
+      pin.focus();
     }
   });
 }
@@ -583,6 +608,121 @@ function viewRun() {
 }
 
 // ------------------------------- log -----------------------------------
+/** Confeti (referencia 21st.dev: Confetti). Canvas efímero; nada con reduced-motion. */
+function confetti(colors) {
+  if (reduceMotion()) return;
+  const c = document.createElement("canvas");
+  c.className = "confetti";
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  c.width = innerWidth * dpr;
+  c.height = innerHeight * dpr;
+  document.body.appendChild(c);
+  const ctx = c.getContext("2d");
+  ctx.scale(dpr, dpr);
+  const parts = Array.from({ length: 140 }, () => ({
+    x: innerWidth / 2 + (Math.random() - 0.5) * 80,
+    y: innerHeight * 0.32,
+    vx: (Math.random() - 0.5) * 11,
+    vy: -Math.random() * 13 - 4,
+    w: 5 + Math.random() * 6,
+    h: 8 + Math.random() * 8,
+    r: Math.random() * Math.PI,
+    vr: (Math.random() - 0.5) * 0.3,
+    color: colors[Math.floor(Math.random() * colors.length)],
+  }));
+  const t0 = performance.now();
+  let last = t0;
+  const frame = (t) => {
+    const k = (t - t0) / 1800;
+    const f = Math.min(3, (t - last) / 16.67); // física por tiempo: igual a 60 y a 120 Hz
+    last = t;
+    ctx.clearRect(0, 0, innerWidth, innerHeight);
+    for (const p of parts) {
+      p.vy += 0.32 * f;
+      p.vx *= Math.pow(0.99, f);
+      p.x += p.vx * f;
+      p.y += p.vy * f;
+      p.r += p.vr * f;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, 1 - k * k);
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.r);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h * Math.abs(Math.cos(p.r * 2)));
+      ctx.restore();
+    }
+    if (k < 1) requestAnimationFrame(frame);
+    else c.remove();
+  };
+  requestAnimationFrame(frame);
+}
+
+/** Stepper de reps (referencia 21st.dev: Quantity Stepper): −/+ con pulsación
+ *  mantenida que acelera; el número también se puede escribir. */
+const repStepper = (e, value, last) => `
+  <div class="card rep-card" style="--day: var(--d${e.day_id || 5})">
+    <div class="rep-info">
+      <strong>${esc(e.name)}</strong>
+      <span class="muted small">${esc(e.muscle_primary || "")}${last != null ? ` · última vez: <b>${last}</b>` : ""}</span>
+    </div>
+    <div class="rep-step">
+      <button type="button" class="glass round" data-step="-1" aria-label="Una rep menos de ${esc(e.name)}">${ICON.minus}</button>
+      <input class="reps" data-ex="${e.id}" type="number" inputmode="numeric" min="0" max="999"
+             value="${value ?? ""}" placeholder="—" aria-label="Reps de ${esc(e.name)}" />
+      <button type="button" class="glass round" data-step="1" aria-label="Una rep más de ${esc(e.name)}">${ICON.plus}</button>
+    </div>
+  </div>`;
+
+function bindSteppers(root) {
+  root.querySelectorAll(".rep-step").forEach((box) => {
+    const input = box.querySelector("input");
+    let timer = null;
+    let n = 0;
+    const bump = (d) => {
+      const v = stepValue(input.value, d);
+      if (String(v) === input.value) return;
+      input.value = String(v);
+      replay(input, "tick");
+    };
+    let held = false;
+    let pressed = false;
+    const stop = () => {
+      clearTimeout(timer);
+      timer = null;
+      pressed = false;
+    };
+    box.querySelectorAll("[data-step]").forEach((b) => {
+      const d = +b.dataset.step;
+      // El toque cuenta al soltar: si el dedo empieza un scroll llega pointercancel
+      // y no se cambia nada. Mantener pulsado repite y acelera desde los 450 ms.
+      b.addEventListener("pointerdown", (ev) => {
+        ev.preventDefault(); // no roba el foco ni cierra el teclado
+        stop(); // un segundo dedo no deja bucles huérfanos
+        pressed = true;
+        held = false;
+        n = 0;
+        const rep = () => {
+          if (!input.isConnected) return stop(); // la vista ya no está
+          held = true;
+          bump(d);
+          timer = setTimeout(rep, holdInterval(++n));
+        };
+        timer = setTimeout(rep, 450);
+      });
+      b.addEventListener("pointerup", () => {
+        if (pressed && !held) bump(d);
+        stop();
+      });
+      for (const evt of ["pointerleave", "pointercancel"]) b.addEventListener(evt, stop);
+      // Teclado y VoiceOver activan con click sin puntero (detail === 0).
+      b.addEventListener("click", (ev) => {
+        if (ev.detail === 0) bump(d);
+      });
+      b.addEventListener("contextmenu", (ev) => ev.preventDefault());
+    });
+  });
+}
+
 async function viewLog() {
   const r = state.run;
   if (!r) return (location.hash = "#/");
@@ -590,33 +730,48 @@ async function viewLog() {
   const list = [...mainExercises(day), ...(r.doneRemates || [])];
   let prefill = {};
   try { prefill = await api.prefill(day.id); } catch (_) {}
+  const fromTimer = r.source === "timer";
+  const week = weekProgress(
+    [{ date: r.date, day_id: day.id }, ...api.pendingSessions(), ...(readRecent() || [])],
+    todayISO()
+  );
+  const tile = (label, value) => `<div class="sum-tile"><span class="kpi-label">${label}</span><b>${value}</b></div>`;
 
   h(`
-    <div class="pane">
-      ${topBar(`Registrar — Día ${day.id}`, null)}
-      <div class="muted small">${r.date} · ${r.rounds} rondas${r.isDeload ? " · deload" : ""}${
-    r.durationSec ? " · " + fmt(r.durationSec) : ""
-  } · reps de la ronda 1</div>
-      <div class="col gap mt">
+    <div class="pane log" style="--day: var(--d${day.id})">
+      ${topBar(fromTimer ? "Entreno terminado" : `Registrar — Día ${day.id}`, null)}
+      ${
+        fromTimer
+          ? `<section class="card done-hero">
+        <div class="done-badge" aria-hidden="true">${ICON.check}</div>
+        <h2>¡Entreno completado!</h2>
+        <span class="muted">Día ${day.id} — ${esc(day.name)}${r.isDeload ? " · deload" : ""}</span>
+        <div class="sum-grid">
+          ${tile("Duración", r.durationSec ? fmt(r.durationSec) : "—")}
+          ${tile("Rondas", `${r.roundsCompleted ?? r.rounds}/${r.rounds}`)}
+          ${tile("Ejercicios", list.length)}
+          ${tile("Semana", `${week.done}/${week.goal}`)}
+        </div>
+      </section>`
+          : `<div class="muted small">${fmtDayLong(r.date)} · ${r.rounds} rondas${r.isDeload ? " · deload" : ""}</div>`
+      }
+      <h3 class="section-title">Apunta tus reps <span class="muted">· ronda 1</span></h3>
+      <div class="col gap">
         ${
           list.length
-            ? list
-                .map(
-                  (e) => `<div class="card row between">
-            <div><strong>${esc(e.name)}</strong><div class="muted small">${esc(e.muscle_primary || "")}</div></div>
-            <input class="reps" data-ex="${e.id}" type="number" inputmode="numeric" min="0"
-                   value="${prefill[e.id] ?? ""}" placeholder="reps" />
-          </div>`
-                )
-                .join("")
+            ? list.map((e) => repStepper({ ...e, day_id: day.id }, prefill[e.id], prefill[e.id])).join("")
             : `<div class="muted">Sin ejercicios en este día.</div>`
         }
       </div>
       <button class="primary big-btn mt" id="save">Guardar sesión</button>
       <button class="ghost small" id="skip">Guardar sin apuntar reps</button>
     </div>`);
+  bindSteppers(app);
+  if (fromTimer) confetti([cssVar(`--d${day.id}`), cssVar("--c-work"), cssVar("--c-rest"), cssVar("--c-warm"), "#ffffff"]);
 
   const save = async (withReps) => {
+    // Evita un doble toque que enviaría (o encolaría) la sesión dos veces.
+    for (const id of ["save", "skip"]) document.getElementById(id).disabled = true;
     const logs = withReps
       ? [...document.querySelectorAll(".reps")]
           .filter((i) => i.value !== "")
@@ -644,31 +799,54 @@ async function viewLog() {
 
 // ------------------------------- manual --------------------------------
 function viewManual() {
-  const opts = state.boot.days
-    .filter((d) => d.id >= 1)
-    .map((d) => `<option value="${d.id}">Día ${d.id} — ${esc(d.name)}</option>`)
-    .join("");
+  let dayId = 1;
+  let rounds = dayById(1)?.rounds || 3;
+  const days = state.boot.days.filter((d) => d.id >= 1);
   h(`
     <div class="pane">
       ${topBar("Sesión manual")}
+      <h3 class="section-title">¿Qué entrenaste?</h3>
+      <div class="day-pick" role="radiogroup" aria-label="Día">
+        ${days
+          .map(
+            (d) => `<label class="card pick" style="--day: var(--d${d.id})">
+            <input type="radio" name="day" value="${d.id}" ${d.id === dayId ? "checked" : ""} />
+            <span class="dotc"></span><span><strong>Día ${d.id}</strong><br /><span class="muted small">${esc(d.name)}</span></span>
+          </label>`
+          )
+          .join("")}
+      </div>
       <div class="card col gap">
-        <label>Día</label><select id="day">${opts}</select>
-        <label>Fecha</label><input id="date" type="date" value="${todayISO()}" />
-        <label>Rondas</label><input id="rounds" type="number" min="1" max="6" value="3" />
-        ${switchRow("Deload", 'id="deload"')}
+        <label for="date">Fecha</label><input id="date" type="date" value="${todayISO()}" max="${todayISO()}" />
+        <label>Rondas</label>
+        <div class="stepper">
+          <button id="minus" class="glass" aria-label="Menos rondas">${ICON.minus}</button>
+          <span class="big" id="rounds" aria-live="polite">${rounds}</span>
+          <button id="plus" class="glass" aria-label="Más rondas">${ICON.plus}</button>
+        </div>
+        ${switchRow("Semana de deload", 'id="deload"')}
       </div>
       <button class="primary big-btn" id="go">Continuar a registro</button>
     </div>`);
+  const paintRounds = () => (document.getElementById("rounds").textContent = rounds);
+  document.getElementById("minus").onclick = () => ((rounds = Math.max(1, rounds - 1)), paintRounds());
+  document.getElementById("plus").onclick = () => ((rounds = Math.min(6, rounds + 1)), paintRounds());
+  app.querySelectorAll('input[name="day"]').forEach((el) => {
+    el.onchange = () => {
+      dayId = +el.value;
+      rounds = dayById(dayId)?.rounds || rounds;
+      paintRounds();
+    };
+  });
   document.getElementById("go").onclick = () => {
-    const day = dayById(document.getElementById("day").value);
-    const n = +document.getElementById("rounds").value;
+    const day = dayById(dayId);
     state.run = {
       day,
-      rounds: n,
+      rounds,
       isDeload: document.getElementById("deload").checked,
       date: document.getElementById("date").value,
       source: "manual",
-      roundsCompleted: n,
+      roundsCompleted: rounds,
       durationSec: null,
       doneRemates: [],
     };
@@ -681,29 +859,47 @@ async function viewMeasure() {
   const reminder = state.boot.settings?.weighin_reminder || "";
   let rows = [];
   try { rows = await api.measurements(); } catch (_) {}
+  const lastOf = (k) => [...rows].reverse().find((m) => m[k] != null);
+  const ago = (iso) => {
+    const d = Math.round((Date.parse(todayISO()) - Date.parse(String(iso).slice(0, 10))) / 864e5);
+    return d <= 0 ? "hoy" : d === 1 ? "ayer" : `hace ${d} días`;
+  };
+  const field = (id, label, unit, key, color) => {
+    const last = lastOf(key);
+    const series = rows.filter((m) => m[key] != null).slice(-10).map((m) => +m[key]);
+    return `<div class="card meas">
+      <label for="${id}" class="kpi-label">${label}</label>
+      <div class="meas-input"><input id="${id}" type="number" inputmode="decimal" step="0.1" placeholder="${last ? nf(last[key]) : "—"}" /><span>${unit}</span></div>
+      <span class="muted small">${last ? `último: ${nf(last[key])} ${unit} · ${ago(last.date)}` : "sin registros"}</span>
+      ${spark(series, color, 120, 26)}
+    </div>`;
+  };
   const recent = rows
     .slice(-8)
     .reverse()
     .map(
       (m) =>
-        `<tr><td>${m.date}</td><td>${m.weight_kg ?? "—"}</td><td>${m.waist_cm ?? "—"}</td><td>${
-          m.is_standard_conditions ? "" : "⚠"
-        }</td></tr>`
+        `<tr><td>${fmtDayLong(String(m.date).slice(0, 10))}</td><td>${m.weight_kg != null ? nf(m.weight_kg) : "—"}</td><td>${
+          m.waist_cm != null ? nf(m.waist_cm) : "—"
+        }</td><td>${m.is_standard_conditions ? "" : `<span title="Fuera de condiciones estándar">▲</span>`}</td></tr>`
     )
     .join("");
   h(`
     <div class="pane">
       ${topBar("Medidas")}
+      <div class="meas-grid">
+        ${field("w", "Peso", "kg", "weight_kg", cssVar("--c-rest"))}
+        ${field("waist", "Cintura", "cm", "waist_cm", cssVar("--c-waist"))}
+      </div>
       <div class="card col gap">
-        <label>Fecha</label><input id="date" type="date" value="${todayISO()}" />
-        <label>Peso (kg)</label><input id="w" type="number" inputmode="decimal" step="0.1" />
-        <label>Cintura (cm)</label><input id="waist" type="number" inputmode="decimal" step="0.1" />
+        <label for="date">Fecha</label><input id="date" type="date" value="${todayISO()}" max="${todayISO()}" />
         ${switchRow("Condiciones estándar", 'id="std" checked')}
         <div class="muted small">${esc(reminder)}</div>
-        <label>Nota</label><input id="note" type="text" placeholder="opcional" />
+        <label for="note">Nota</label><input id="note" type="text" placeholder="opcional" />
       </div>
       <button class="primary big-btn" id="go">Guardar</button>
-      <div class="card table-card mt"><table><thead><tr><th>Fecha</th><th>Peso</th><th>Cintura</th><th></th></tr></thead>
+      <h3 class="section-title">Últimos registros</h3>
+      <div class="card table-card"><table><thead><tr><th>Fecha</th><th>Peso</th><th>Cintura</th><th></th></tr></thead>
         <tbody>${recent || `<tr><td colspan="4" class="muted">Sin registros</td></tr>`}</tbody></table></div>
     </div>`);
   document.getElementById("go").onclick = async () => {
@@ -723,29 +919,47 @@ async function viewMeasure() {
 }
 
 // ------------------------------- history -------------------------------
-async function viewHistory() {
+// Línea de tiempo por semanas (referencia 21st.dev: Timeline agrupado por día).
+async function viewHistory(limit = 50) {
   let s = [];
-  try { s = await api.sessions(50); } catch (_) {}
+  try { s = await api.sessions(limit + 1); } catch (_) {} // +1: saber si hay más
+  const hasMore = s.length > limit;
+  s = s.slice(0, limit);
+  const weeks = groupByWeek(s);
+  const weekTitle = (mon) => (mon === mondayISO(todayISO()) ? "Esta semana" : `Semana del ${fmtDay(mon)}`);
   h(`
-    <div class="pane">
+    <div class="pane history">
       ${topBar("Historial")}
-      <div class="col gap mt">
-        ${
-          s.length
-            ? s
-                .map(
-                  (x) => `<div class="card row between">
-          <div><strong>${x.date}</strong> · Día ${x.day_id} ${esc(x.day_name)}</div>
-          <div class="muted small">${x.rounds_completed ?? "?"} rd${x.is_deload ? " · deload" : ""}${
-                    x.duration_sec ? " · " + fmt(x.duration_sec) : ""
-                  } · ${x.source}</div>
-        </div>`
-                )
-                .join("")
-            : `<div class="muted">Sin sesiones todavía</div>`
-        }
-      </div>
+      ${
+        weeks.length
+          ? weeks
+              .map(
+                (w) => `<section class="tl-week">
+          <header class="tl-head"><span>${weekTitle(w.monday)}</span><span class="pill ${w.days >= 4 ? "ok" : ""}">${w.days}/4 días</span></header>
+          <ol class="tl">
+            ${w.items
+              .map(
+                (x) => `<li class="tl-item" style="--day: var(--d${x.day_id})">
+              <span class="tl-dot" aria-hidden="true"></span>
+              <div class="card tl-card">
+                <div class="row between"><strong>Día ${x.day_id} — ${esc(x.day_name)}</strong>${x.is_deload ? '<span class="pill">deload</span>' : ""}</div>
+                <span class="muted small">${fmtDayLong(String(x.date).slice(0, 10))} · ${x.rounds_completed ?? "?"} rondas${
+                  x.duration_sec ? " · " + fmt(x.duration_sec) : ""
+                } · ${x.source === "manual" ? "manual" : "con timer"}</span>
+              </div>
+            </li>`
+              )
+              .join("")}
+          </ol>
+        </section>`
+              )
+              .join("")
+          : `<div class="card muted">Sin sesiones todavía. ¡La primera te espera!</div>`
+      }
+      ${hasMore ? `<button class="btn" id="more">Ver más</button>` : ""}
     </div>`);
+  const more = document.getElementById("more");
+  if (more) more.onclick = () => viewHistory(limit + 50);
 }
 
 // ------------------------------ dashboard -------------------------------

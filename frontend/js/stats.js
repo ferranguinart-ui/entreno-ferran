@@ -38,3 +38,31 @@ export function nextDayId(sessions, planIds) {
   if (!last) return planIds[0];
   return planIds[(planIds.indexOf(last.day_id) + 1) % planIds.length];
 }
+
+/** Stepper de reps: suma `delta` y acota a 0..999 (vacío = 0). */
+export function stepValue(v, delta) {
+  const n = Number(v) || 0;
+  return Math.min(999, Math.max(0, Math.round(n + delta)));
+}
+
+/** Pulsación mantenida: intervalo (ms) del n-ésimo repetido; acelera hasta 60 ms. */
+export function holdInterval(n) {
+  return Math.max(60, Math.round(400 * Math.pow(0.7, n)));
+}
+
+/** Sesiones (más reciente primero) agrupadas por semana lunes-domingo,
+ *  con cuántos días distintos se entrenó cada semana. */
+export function groupByWeek(sessions) {
+  const weeks = new Map();
+  for (const s of sessions) {
+    const date = String(s.date).slice(0, 10);
+    const w = mondayISO(date);
+    if (!weeks.has(w)) weeks.set(w, { monday: w, items: [], dates: new Set() });
+    const g = weeks.get(w);
+    g.items.push(s);
+    g.dates.add(date);
+  }
+  return [...weeks.values()]
+    .sort((a, b) => (a.monday < b.monday ? 1 : -1))
+    .map(({ monday, items, dates }) => ({ monday, items, days: dates.size }));
+}

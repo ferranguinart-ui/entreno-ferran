@@ -49,3 +49,28 @@ test("nextDayId: rota 1→2→3→4→1 según el último entreno con plan", () 
   // el día libre (5) no cuenta: se mira la última sesión de un día con plan
   assert.equal(nextDayId([s("2026-10-21", 5), s("2026-10-20", 1)], [1, 2, 3, 4]), 2);
 });
+
+import { stepValue, holdInterval, groupByWeek } from "./stats.js";
+
+test("stepValue: suma y acota (0..999), vacío cuenta como 0", () => {
+  assert.equal(stepValue(10, 1), 11);
+  assert.equal(stepValue(0, -1), 0);
+  assert.equal(stepValue("", 1), 1);
+  assert.equal(stepValue(999, 5), 999);
+  assert.equal(stepValue("7", -2), 5);
+});
+
+test("holdInterval: al mantener pulsado acelera hasta un mínimo", () => {
+  assert.equal(holdInterval(0), 400);
+  assert.ok(holdInterval(3) < holdInterval(1));
+  assert.equal(holdInterval(50), 60);
+});
+
+test("groupByWeek: semanas de más reciente a más antigua, días con sesión por semana", () => {
+  const s = (date, day_id = 1) => ({ date, day_id });
+  const g = groupByWeek([s("2026-10-20"), s("2026-10-19", 2), s("2026-10-19", 5), s("2026-10-14")]);
+  assert.deepEqual(g.map((w) => w.monday), ["2026-10-19", "2026-10-12"]);
+  assert.equal(g[0].items.length, 3);
+  assert.equal(g[0].days, 2, "dos días distintos");
+  assert.equal(g[1].days, 1);
+});
