@@ -2,9 +2,20 @@ import { api } from "./api.js";
 import { buildSteps, TimerEngine, primaryLabel, readMuted, writeMuted, autopauseState } from "./timer.js";
 import { dialText, ringFraction, changedIndices, beatAt } from "./fx.js";
 import { weekProgress, nextDayId } from "./stats.js";
+import {
+  withAvg,
+  deltaOver,
+  goalProgress,
+  monthCounts,
+  bestWeekStreak,
+  heatWeeks,
+  strengthByDay,
+  inRange,
+  sparkPath,
+} from "./dash.js";
 
 const app = document.getElementById("app");
-const APP_VERSION = "10"; // = número de la caché en sw.js; se muestra en el inicio
+const APP_VERSION = "12"; // = número de la caché en sw.js; se muestra en el inicio
 const state = { boot: null, run: null, engine: null };
 
 const todayISO = () => new Date().toLocaleDateString("sv-SE"); // YYYY-MM-DD local
@@ -61,6 +72,8 @@ const ICON = {
   chevronLeft: ico('<path d="m15 18-6-6 6-6"/>'),
   minus: ico('<path d="M5 12h14"/>'),
   chevronRight: ico('<path d="m9 18 6-6-6-6"/>'),
+  expand: ico('<path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/>'),
+  close: ico('<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'),
   play: ico('<polygon points="6 3 20 12 6 21 6 3"/>'),
   logout: ico('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>'),
   flame: ico('<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>'),
@@ -117,6 +130,8 @@ async function router() {
     state.charts.forEach((c) => c.destroy());
     state.charts = null;
   }
+  // Un <dialog> quitado del DOM no emite "close": soltar aquí el bloqueo de scroll.
+  document.documentElement.classList.remove("noscroll");
   // La animación de entrada solo al cambiar de ruta, no en cada re-render
   // de la misma vista (stepper de rondas, guardar medida...).
   app.classList.add("entering");
@@ -733,7 +748,204 @@ async function viewHistory() {
     </div>`);
 }
 
-// ------------------------------- dashboard ----------------------------
+// ------------------------------ dashboard -------------------------------
+const DAY_NAMES = { 1: "Empuje", 2: "HIIT + core", 3: "Tracción", 4: "Piernas + core", 5: "Libre" };
+const RANGE_KEY = "entreno.dashRange";
+const RANGES = [
+  ["1m", "1M"],
+  ["3m", "3M"],
+  ["all", "Todo"],
+];
+const readRange = () => {
+  try {
+    return localStorage.getItem(RANGE_KEY) || "3m";
+  } catch (_) {
+    return "3m";
+  }
+};
+const nf = (v, dec = 1) => Number(v).toLocaleString("es-ES", { minimumFractionDigits: dec, maximumFractionDigits: dec });
+const signed = (v, dec = 1) => (v > 0 ? "+" : v < 0 ? "−" : "±") + nf(Math.abs(v), dec);
+const reduceMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+const cssVar = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const fmtDay = (iso) =>
+  new Date(iso + "T12:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "short" }).replace(".", "");
+const fmtDayLong = (iso) =>
+  new Date(iso + "T12:00:00").toLocaleDateString("es-ES", { weekday: "short", day: "numeric", month: "short" }).replace(/\./g, "");
+
+/** Mini gráfica SVG (sin Chart.js: funciona sin red). */
+const spark = (vals, color, w = 96, h = 28, cls = "spark") => {
+  const d = sparkPath(vals, w, h, 3);
+  if (!d) return "";
+  const dot = d.split(" ").at(-1).slice(1).split(",");
+  return `<svg class="${cls}" viewBox="0 0 ${w} ${h}" aria-hidden="true" style="--c:${color}">
+    <path d="${d}" /><circle cx="${dot[0]}" cy="${dot[1]}" r="2.6" /></svg>`;
+};
+
+// Tema de Chart.js desde los tokens de la app.
+function chartTheme() {
+  return { fg: cssVar("--fg"), muted: cssVar("--muted"), card: cssVar("--card"), line: "#ffffff12", goal: cssVar("--c-work") };
+}
+const alpha = (hex, a) => hex + Math.round(a * 255).toString(16).padStart(2, "0");
+
+// Crosshair vertical en el punto activo del tooltip.
+const crosshair = {
+  id: "crosshair",
+  afterDatasetsDraw(chart) {
+    const a = chart.tooltip?.getActiveElements?.();
+    if (!a?.length) return;
+    const { ctx, chartArea } = chart;
+    const x = a[0].element.x;
+    ctx.save();
+    ctx.strokeStyle = "#ffffff40";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(x, chartArea.top);
+    ctx.lineTo(x, chartArea.bottom);
+    ctx.stroke();
+    ctx.restore();
+  },
+};
+
+function baseOpts({ big = false, unit = "" } = {}) {
+  const t = chartTheme();
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: reduceMotion() ? false : { duration: 700, easing: "easeOutQuart" },
+    interaction: { mode: "index", intersect: false },
+    layout: { padding: { top: 6, right: 4 } },
+    plugins: {
+      legend: { display: false }, // leyenda propia en HTML (texto con tokens)
+      tooltip: {
+        enabled: big || matchMedia("(hover: hover)").matches,
+        backgroundColor: alpha(t.card.length === 7 ? t.card : "#1a1d24", 0.94),
+        borderColor: "#ffffff26",
+        borderWidth: 1,
+        titleColor: t.muted,
+        bodyColor: t.fg,
+        padding: 10,
+        cornerRadius: 10,
+        displayColors: false,
+        callbacks: {
+          title: (items) => fmtDayLong(items[0].label),
+          label: (it) => (it.raw == null ? null : `${it.dataset.label}: ${nf(it.raw)}${unit}`),
+        },
+      },
+    },
+    scales: {
+      x: {
+        grid: { display: false },
+        border: { color: t.line },
+        ticks: { color: t.muted, maxRotation: 0, autoSkip: true, maxTicksLimit: big ? 8 : 5, callback(v) { return fmtDay(this.getLabelForValue(v)); } },
+      },
+      y: {
+        grid: { color: t.line },
+        border: { display: false },
+        ticks: { color: t.muted, maxTicksLimit: big ? 7 : 4, callback: (v) => nf(v) },
+      },
+    },
+  };
+}
+
+/** Peso/cintura: media móvil con área degradada + registros + objetivo. */
+function measureChart(canvas, pts, { color, goal = null, big = false, unit = "" }) {
+  const labels = pts.map((p) => p.date);
+  const datasets = [
+    {
+      label: "Media 7",
+      data: pts.map((p) => p.avg),
+      borderColor: color,
+      borderWidth: big ? 2.5 : 2,
+      tension: 0.35,
+      pointRadius: 0,
+      pointHoverRadius: 5,
+      pointHoverBackgroundColor: color,
+      fill: "origin",
+      backgroundColor: (ctx) => {
+        const { chartArea, ctx: c } = ctx.chart;
+        if (!chartArea) return alpha(color, 0.15);
+        const g = c.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+        g.addColorStop(0, alpha(color, 0.32));
+        g.addColorStop(1, alpha(color, 0));
+        return g;
+      },
+    },
+    {
+      label: "Registro",
+      data: pts.map((p) => p.y),
+      showLine: false,
+      borderColor: "#ffffff70",
+      backgroundColor: "#ffffff70",
+      pointRadius: pts.map((p) => (p.std === false ? (big ? 5 : 4) : big ? 3 : 2)),
+      pointStyle: pts.map((p) => (p.std === false ? "triangle" : "circle")),
+      pointHoverRadius: 5,
+    },
+  ];
+  if (goal != null)
+    datasets.push({
+      label: "Objetivo",
+      data: labels.map(() => goal),
+      borderColor: alpha(chartTheme().goal, 0.8),
+      borderDash: [6, 5],
+      borderWidth: 1.5,
+      pointRadius: 0,
+      pointHoverRadius: 0,
+    });
+  const opts = baseOpts({ big, unit });
+  // Que la escala no se aplaste: el objetivo entra solo si está cerca.
+  if (goal != null) {
+    const vals = pts.flatMap((p) => [p.y, p.avg]);
+    opts.scales.y.suggestedMin = Math.min(...vals, goal) - 0.5;
+    opts.scales.y.suggestedMax = Math.max(...vals) + 0.5;
+  }
+  return new Chart(canvas, { type: "line", data: { labels, datasets }, options: opts, plugins: [crosshair] });
+}
+
+/** Fuerza: reps/40 s de un ejercicio, deload como triángulo. */
+function strengthChart(canvas, ex, color, big) {
+  const labels = ex.points.map((p) => p.date);
+  return new Chart(canvas, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Reps / 40 s",
+          data: ex.points.map((p) => p.y),
+          borderColor: color,
+          backgroundColor: color,
+          borderWidth: 2.5,
+          tension: 0.3,
+          pointRadius: ex.points.map((p) => (p.deload ? 6 : 3.5)),
+          pointStyle: ex.points.map((p) => (p.deload ? "triangle" : "circle")),
+          fill: false,
+        },
+      ],
+    },
+    options: baseOpts({ big }),
+    plugins: [crosshair],
+  });
+}
+
+/** Número que cuenta hacia su valor (se salta con reduced-motion). */
+function countUp(root) {
+  root.querySelectorAll("[data-count]").forEach((el) => {
+    const to = +el.dataset.count;
+    const dec = +(el.dataset.dec || 0);
+    if (reduceMotion() || !isFinite(to)) return;
+    const t0 = performance.now();
+    const from = dec ? to * 0.97 : 0; // los pesos no arrancan en 0: solo "rodar" al final
+    const step = (t) => {
+      const k = Math.min(1, (t - t0) / 700);
+      const e = 1 - Math.pow(1 - k, 3);
+      el.textContent = nf(from + (to - from) * e, dec);
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+}
+
 async function viewDashboard() {
   let d;
   try {
@@ -742,176 +954,326 @@ async function viewDashboard() {
     return;
   }
   const hasChart = typeof window.Chart === "function";
+  const today = todayISO();
+  let range = readRange();
+  const BLUE = cssVar("--c-rest");
+  const AQUA = cssVar("--c-waist");
+
+  const weightAll = withAvg(d.measurements.filter((m) => m.weight_kg != null).map((m) => ({ date: m.date, y: +m.weight_kg, std: m.is_standard_conditions })));
+  const waistAll = withAvg(d.measurements.filter((m) => m.waist_cm != null).map((m) => ({ date: m.date, y: +m.waist_cm, std: m.is_standard_conditions })));
+  const goal = d.goal_weight_kg;
+  const wNow = weightAll.at(-1)?.avg ?? null;
+  const prog = goalProgress(weightAll[0]?.avg ?? null, wNow, goal);
+  const wDelta = deltaOver(weightAll, today, 30);
+  const cDelta = deltaOver(waistAll, today, 30);
+  const months = monthCounts(d.sessions, today);
+  const wk = weekProgress(d.sessions, today);
+  const best = Math.max(bestWeekStreak(d.sessions), wk.streak);
+  const weeks = heatWeeks(d.sessions, today, 16);
+  const strength = strengthByDay(d.strength);
+
+  const kpi = ({ label, value, dec, unit, sub, sparkHTML, extra = "" }) => `
+    <div class="card kpi">
+      <span class="kpi-label">${label}</span>
+      <span class="kpi-value">${value == null ? "—" : `<b data-count="${value}" data-dec="${dec}">${nf(value, dec)}</b>`}<small>${unit}</small></span>
+      <span class="kpi-sub">${sub}</span>
+      ${sparkHTML}${extra}
+    </div>`;
+  const deltaTxt = (v, unit) => (v == null ? "sin datos de hace 30 días" : `${signed(v)} ${unit} en 30 días`);
+  const weekBars = weeks.slice(-8).map((w) => w.count);
+
+  const heatHTML = () => {
+    let lastMonth = "";
+    const cols = weeks
+      .map((w) => {
+        const m = new Date(w.monday + "T12:00:00").toLocaleDateString("es-ES", { month: "short" }).replace(".", "");
+        const mLabel = m !== lastMonth ? m : "";
+        lastMonth = m;
+        const cells = w.days
+          .map((c) => {
+            const cls = ["hc", c.dayId ? "on" : "", c.deload ? "dl" : "", c.future ? "fut" : "", c.today ? "now" : ""].join(" ");
+            const info = c.dayId ? `${fmtDayLong(c.date)} · Día ${c.dayId} ${DAY_NAMES[c.dayId] || ""}${c.deload ? " · deload" : ""}` : `${fmtDayLong(c.date)} · sin entreno`;
+            return `<span class="${cls}" ${c.dayId ? `style="--day: var(--d${c.dayId})"` : ""} data-info="${esc(info)}" title="${esc(info)}"></span>`;
+          })
+          .join("");
+        return `<div class="hcol"><span class="hm">${mLabel}</span>${cells}<span class="hn ${w.count >= 4 ? "ok" : ""}">${w.count || ""}</span></div>`;
+      })
+      .join("");
+    return `<div class="heat2" role="img" aria-label="Calendario de entrenos de las últimas 16 semanas">
+      <div class="hdays"><span></span><span>L</span><span></span><span>X</span><span></span><span>V</span><span></span><span>D</span><span></span></div>
+      ${cols}</div>`;
+  };
+
   h(`
     <div class="pane dash">
       ${topBar("Dashboard")}
-      ${hasChart ? "" : `<div class="note warn">Sin conexión para cargar los gráficos. Reintenta con red.</div>`}
-      <section class="card sec-weight">
-        <h3>Peso <span class="muted small">objetivo ${d.goal_weight_kg} kg</span></h3>
-        <div class="cw"><canvas id="cWeight"></canvas></div>
-        <div class="muted small">Línea gruesa = media móvil de 7 registros. ▲ = fuera de condiciones estándar.</div>
+      <div class="chips" role="group" aria-label="Rango de fechas">
+        ${RANGES.map(([k, t]) => `<button class="chip ${k === range ? "on" : ""}" data-range="${k}" aria-pressed="${k === range}">${t}</button>`).join("")}
+      </div>
+      <div class="kpis">
+        ${kpi({ label: "Peso", value: wNow, dec: 1, unit: " kg", sub: deltaTxt(wDelta, "kg"), sparkHTML: spark(weightAll.slice(-30).map((p) => p.avg), BLUE) })}
+        ${kpi({ label: "Cintura", value: waistAll.at(-1)?.avg ?? null, dec: 1, unit: " cm", sub: deltaTxt(cDelta, "cm"), sparkHTML: spark(waistAll.slice(-30).map((p) => p.avg), AQUA) })}
+        ${kpi({
+          label: "Entrenos del mes",
+          value: months.thisMonth,
+          dec: 0,
+          unit: "",
+          sub: `${months.lastMonth} el mes pasado`,
+          sparkHTML: `<div class="bars" aria-hidden="true">${weekBars.map((n) => `<i class="${n >= 4 ? "ok" : ""}" style="height:${Math.max(8, (Math.min(n, 7) / 7) * 100)}%"></i>`).join("")}</div>`,
+        })}
+        ${kpi({
+          label: "Racha",
+          value: wk.streak,
+          dec: 0,
+          unit: wk.streak === 1 ? " semana" : " semanas",
+          sub: `mejor: ${best} · esta semana ${wk.done}/${wk.goal}`,
+          sparkHTML: `<div class="dots" aria-hidden="true">${weeks.slice(-8).map((w) => `<i class="${w.count >= 4 ? "ok" : ""}"></i>`).join("")}</div>`,
+        })}
+      </div>
+
+      <section class="card hero expandable" data-zoom="weight" tabindex="0" role="button" aria-label="Ampliar la gráfica de peso">
+        <div class="row between hero-head">
+          <div class="col">
+            <span class="kpi-label">Peso · camino al objetivo de ${nf(goal)} kg</span>
+            <span class="hero-num">${
+              !prog ? "—" : prog.remaining ? `${nf(prog.remaining)}<small> kg por bajar</small>` : `<small>¡Objetivo alcanzado!</small>`
+            }</span>
+          </div>
+          <span class="glass round zoom-ico" aria-hidden="true">${ICON.expand}</span>
+        </div>
+        <div class="legend small"><span class="lg"><i class="lg-line" style="--c:${BLUE}"></i>Media</span><span class="lg"><i class="lg-dot"></i>Registro</span><span class="lg"><i class="lg-tri"></i>Fuera de condiciones</span><span class="lg"><i class="lg-dash"></i>Objetivo</span></div>
+        <div class="cw"><canvas id="cWeight"></canvas></div><p class="muted small cw-msg" hidden></p>
+        ${
+          prog
+            ? `<div class="goal">
+          <div class="row between small"><span><b>${prog.pct} %</b> del camino</span><span class="muted">de ${nf(weightAll[0].avg)} a ${nf(goal)} kg · hoy ${nf(wNow)} kg</span></div>
+          <div class="goalbar" role="progressbar" aria-valuenow="${prog.pct}" aria-valuemin="0" aria-valuemax="100"><i style="width:${prog.pct}%"></i></div>
+        </div>`
+            : ""
+        }
       </section>
-      <section class="card sec-waist">
-        <h3>Cintura</h3>
-        <div class="cw"><canvas id="cWaist"></canvas></div>
-        <div class="muted small">Línea gruesa = media móvil de 7 registros.</div>
+
+      <section class="card waist expandable" data-zoom="waist" tabindex="0" role="button" aria-label="Ampliar la gráfica de cintura">
+        <div class="row between">
+          <span class="kpi-label">Cintura · media 7 registros</span>
+          <span class="glass round zoom-ico" aria-hidden="true">${ICON.expand}</span>
+        </div>
+        <div class="cw sm"><canvas id="cWaist"></canvas></div><p class="muted small cw-msg" hidden></p>
       </section>
+
       <section class="card sec-consistency">
-        <h3>Consistencia <span class="muted small">objetivo 4/semana</span></h3>
-        <div id="heat" class="heat"></div>
-        <div class="muted small">Cada fila una semana. Verde = sesión · Morado = deload.</div>
+        <div class="row between wrap">
+          <h3>Constancia</h3>
+          <span class="muted small">Racha <b>${wk.streak}</b> · mejor <b>${best}</b> · esta semana <b>${wk.done}/${wk.goal}</b></span>
+        </div>
+        ${heatHTML()}
+        <div class="legend small">
+          ${[1, 2, 3, 4, 5].map((id) => `<span class="lg"><i class="lg-sq" style="--day: var(--d${id})"></i>${DAY_NAMES[id]}</span>`).join("")}
+          <span class="lg"><i class="lg-sq dl neutral"></i>Deload (rayado)</span>
+        </div>
       </section>
-      <section class="card sec-strength">
-        <h3>Progresión de fuerza <span class="muted small">reps / 40 s</span></h3>
-        <div id="strength" class="subs"></div>
-        <div class="muted small">▲ = sesión de deload.</div>
+
+      <section class="sec-strength">
+        <h3 class="section-title">Fuerza <span class="muted">· reps en 40 s</span></h3>
+        <div class="str-grid">
+        ${
+          strength.length
+            ? strength
+                .map(
+                  (g) => `<div class="card str" style="--day: var(--d${g.dayId})">
+          <div class="str-head"><span class="dotc"></span><strong>Día ${g.dayId} — ${esc(DAY_NAMES[g.dayId] || "")}</strong></div>
+          ${g.exercises
+            .map(
+              (e) => `<button class="str-row" data-zoom="ex" data-day="${g.dayId}" data-ex="${e.id}" aria-label="Ampliar ${esc(e.name)}">
+              <span class="str-name">${esc(e.name)}</span>
+              ${spark(e.points.map((p) => p.y), `var(--d${g.dayId})`, 64, 24)}
+              <span class="str-val"><b>${nf(e.last)}</b><small>${e.points.length > 1 ? signed(e.delta) : "—"}</small></span>
+            </button>`
+            )
+            .join("")}
+        </div>`
+                )
+                .join("")
+            : `<div class="card muted small">Aún no hay repeticiones registradas.</div>`
+        }
+        </div>
       </section>
+
+      <dialog id="zoom" class="sheet" aria-labelledby="zoomTitle">
+        <div class="sheet-grip" aria-hidden="true"></div>
+        <header class="sheet-head">
+          <h3 id="zoomTitle"></h3>
+          <button class="glass round" id="zoomClose" aria-label="Cerrar">${ICON.close}</button>
+        </header>
+        <div class="chips" id="zoomChips"></div>
+        <div class="legend small" id="zoomLegend"></div>
+        <div class="cw xl"><canvas id="cZoom"></canvas></div><p class="muted small cw-msg" hidden></p>
+        <details class="zoom-table"><summary>Ver tabla</summary><div id="zoomTable"></div></details>
+      </dialog>
     </div>`);
 
   state.charts = [];
-  const iso = (dt) => dt.toLocaleDateString("sv-SE");
-  const movingAvg = (vals, n = 7) =>
-    vals.map((_, i) => {
-      const s = vals.slice(Math.max(0, i - n + 1), i + 1);
-      return +(s.reduce((a, b) => a + b, 0) / s.length).toFixed(2);
-    });
-  const lineOpts = () => ({
-    responsive: true,
-    maintainAspectRatio: false,
-    interaction: { mode: "index", intersect: false },
-    plugins: { legend: { labels: { color: "#9aa3b2", boxWidth: 12, font: { size: 11 } } } },
-    scales: {
-      x: { ticks: { color: "#9aa3b2", maxRotation: 0, autoSkip: true, maxTicksLimit: 6 }, grid: { color: "#ffffff12" } },
-      y: { ticks: { color: "#9aa3b2" }, grid: { color: "#ffffff12" } },
-    },
+  countUp(app);
+  // Sin datos / sin Chart.js: se oculta el lienzo y se muestra un aviso al lado
+  // (sin borrar el canvas, para que otro rango pueda volver a pintarlo).
+  const showMsg = (canvas, msg) => {
+    const box = canvas.closest(".cw");
+    box.hidden = !!msg;
+    box.nextElementSibling.hidden = !msg;
+    box.nextElementSibling.textContent = msg || "";
+  };
+  const NO_CHART = "Sin conexión para cargar la gráfica.";
+  const NO_DATA = "Sin datos en este rango.";
+  const untrack = (c) => {
+    if (!c) return;
+    c.destroy();
+    state.charts = (state.charts || []).filter((x) => x !== c);
+  };
+
+  let wChart = null;
+  let cChart = null;
+  const drawMeasures = () => {
+    untrack(wChart);
+    untrack(cChart);
+    wChart = cChart = null;
+    const cw = document.getElementById("cWeight");
+    const cc = document.getElementById("cWaist");
+    const wp = inRange(weightAll, range, today);
+    const cp = inRange(waistAll, range, today);
+    showMsg(cw, !hasChart ? NO_CHART : wp.length ? "" : NO_DATA);
+    showMsg(cc, !hasChart ? NO_CHART : cp.length ? "" : NO_DATA);
+    if (hasChart && wp.length) wChart = measureChart(cw, wp, { color: BLUE, goal, unit: " kg" });
+    if (hasChart && cp.length) cChart = measureChart(cc, cp, { color: AQUA, unit: " cm" });
+    state.charts.push(...[wChart, cChart].filter(Boolean));
+  };
+  drawMeasures();
+
+  app.querySelectorAll(".pane > .chips .chip").forEach((b) => {
+    b.onclick = () => {
+      range = b.dataset.range;
+      try {
+        localStorage.setItem(RANGE_KEY, range);
+      } catch (_) {}
+      app.querySelectorAll(".pane > .chips .chip").forEach((x) => {
+        x.classList.toggle("on", x === b);
+        x.setAttribute("aria-pressed", String(x === b));
+      });
+      drawMeasures();
+    };
   });
 
-  const mkMeasureChart = (canvasId, key, withGoal) => {
-    const pts = d.measurements
-      .filter((m) => m[key] != null)
-      .map((m) => ({ date: m.date, y: +m[key], std: m.is_standard_conditions }));
-    if (!hasChart) return;
-    if (!pts.length) {
-      const n = document.createElement("div");
-      n.className = "muted small";
-      n.textContent = "Sin datos todavía.";
-      document.getElementById(canvasId).closest(".cw").replaceWith(n);
-      return;
-    }
-    const labels = pts.map((p) => p.date);
-    const raw = pts.map((p) => p.y);
-    const ds = [
-      {
-        label: "registro",
-        data: raw,
-        borderColor: "#4f8cff55",
-        backgroundColor: "#4f8cff",
-        pointRadius: pts.map((p) => (p.std ? 3 : 6)),
-        pointStyle: pts.map((p) => (p.std ? "circle" : "triangle")),
-        borderWidth: 1,
-        tension: 0.2,
-      },
-      { label: "media 7", data: movingAvg(raw), borderColor: "#4f8cff", pointRadius: 0, borderWidth: 3, tension: 0.3 },
-    ];
-    if (withGoal)
-      ds.push({
-        label: "objetivo",
-        data: labels.map(() => d.goal_weight_kg),
-        borderColor: "#3fae6b",
-        borderDash: [6, 6],
-        pointRadius: 0,
-        borderWidth: 1.5,
-      });
-    state.charts.push(
-      new Chart(document.getElementById(canvasId), { type: "line", data: { labels, datasets: ds }, options: lineOpts() })
-    );
-  };
-  mkMeasureChart("cWeight", "weight_kg", true);
-  mkMeasureChart("cWaist", "waist_cm", false);
+  // Toque en una casilla del calendario: su detalle en el toast.
+  app.querySelector(".heat2").addEventListener("click", (e) => {
+    const c = e.target.closest(".hc");
+    if (c && !c.classList.contains("fut")) toast(c.dataset.info);
+  });
 
-  // consistency heatmap
-  const byDay = {};
-  d.sessions.forEach((s) => ((byDay[s.date] ||= []).push(s)));
-  const monday = (dt) => {
-    const x = new Date(dt);
-    x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
-    x.setHours(0, 0, 0, 0);
-    return x;
+  // ---- ampliar ----
+  const dlg = document.getElementById("zoom");
+  let zChart = null;
+  let zRange = range;
+  let current = null;
+  const tableHTML = (rows, cols) =>
+    `<table><thead><tr>${cols.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${rows
+      .slice()
+      .reverse()
+      .map((r) => `<tr>${r.map((v) => `<td>${v}</td>`).join("")}</tr>`)
+      .join("")}</tbody></table>`;
+  const drawZoom = () => {
+    untrack(zChart);
+    zChart = null;
+    const canvas = document.getElementById("cZoom");
+    const legend = document.getElementById("zoomLegend");
+    const chips = document.getElementById("zoomChips");
+    let pts;
+    if (current.kind === "ex") {
+      chips.innerHTML = "";
+      pts = current.ex.points;
+      legend.innerHTML = `<span class="lg"><i class="lg-line" style="--c:var(--d${current.dayId})"></i>Reps / 40 s</span><span class="lg"><i class="lg-tri"></i>Deload</span>`;
+      document.getElementById("zoomTable").innerHTML = tableHTML(pts.map((p) => [fmtDayLong(p.date), nf(p.y) + (p.deload ? " · deload" : "")]), ["Fecha", "Reps/40 s"]);
+      if (hasChart && pts.length) zChart = strengthChart(canvas, current.ex, cssVar(`--d${current.dayId}`), true);
+    } else {
+      const isW = current.kind === "weight";
+      chips.innerHTML = RANGES.map(([k, t]) => `<button class="chip ${k === zRange ? "on" : ""}" data-r="${k}" aria-pressed="${k === zRange}">${t}</button>`).join("");
+      chips.querySelectorAll(".chip").forEach((b) => (b.onclick = () => ((zRange = b.dataset.r), drawZoom())));
+      pts = inRange(isW ? weightAll : waistAll, zRange, today);
+      legend.innerHTML = `<span class="lg"><i class="lg-line" style="--c:${isW ? BLUE : AQUA}"></i>Media</span><span class="lg"><i class="lg-dot"></i>Registro</span><span class="lg"><i class="lg-tri"></i>Fuera de condiciones</span>${isW ? '<span class="lg"><i class="lg-dash"></i>Objetivo</span>' : ""}`;
+      const u = isW ? "kg" : "cm";
+      document.getElementById("zoomTable").innerHTML = tableHTML(
+        pts.map((p) => [fmtDayLong(p.date), `${nf(p.y)} ${u}${p.std === false ? " ▲" : ""}`, `${nf(p.avg)} ${u}`]),
+        ["Fecha", "Registro", "Media 7"]
+      );
+      if (hasChart && pts.length) zChart = measureChart(canvas, pts, { color: isW ? BLUE : AQUA, goal: isW ? goal : null, big: true, unit: ` ${u}` });
+    }
+    showMsg(canvas, !hasChart ? NO_CHART : pts.length ? "" : NO_DATA);
+    if (zChart) state.charts.push(zChart);
   };
-  const thisMon = monday(new Date());
-  let heatHTML = "";
-  for (let w = 11; w >= 0; w--) {
-    const start = new Date(thisMon);
-    start.setDate(start.getDate() - w * 7);
-    let cells = "";
-    let count = 0;
-    let deload = false;
-    for (let k = 0; k < 7; k++) {
-      const c = new Date(start);
-      c.setDate(c.getDate() + k);
-      const ss = byDay[iso(c)];
-      let cls = "hc";
-      if (ss) {
-        count++;
-        if (ss.some((x) => x.is_deload)) {
-          cls += " dl";
-          deload = true;
-        } else cls += " on";
-      }
-      cells += `<span class="${cls}" title="${iso(c)}"></span>`;
-    }
-    heatHTML += `<div class="hrow"><span class="hlabel">${start.getDate()}/${start.getMonth() + 1}</span>
-      <div class="hcells">${cells}</div>
-      <span class="hcount ${count >= 4 ? "ok" : ""}">${count}/4${deload ? " ·D" : ""}</span></div>`;
-  }
-  document.getElementById("heat").innerHTML = heatHTML;
-
-  // strength progression
-  const GROUPS = [
-    [1, "Empuje"],
-    [3, "Tracción"],
-    [4, "Piernas"],
-  ];
-  const palette = ["#4f8cff", "#3fae6b", "#e0a13c", "#c65fb0", "#5bc0be", "#e2725b"];
-  const host = document.getElementById("strength");
-  for (const [dayId, gname] of GROUPS) {
-    const rows = d.strength.filter((r) => r.day_id === dayId);
-    const box = document.createElement("div");
-    if (!rows.length) {
-      box.className = "muted small";
-      box.textContent = `${gname}: sin registros`;
-      host.appendChild(box);
-      continue;
-    }
-    box.className = "subchart";
-    const cid = `cS${dayId}`;
-    box.innerHTML = `<div class="muted small">${gname}</div><div class="cw sm"><canvas id="${cid}"></canvas></div>`;
-    host.appendChild(box);
-    if (!hasChart) continue;
-    const labels = [...new Set(rows.map((r) => r.date))].sort();
-    const exIds = [...new Set(rows.map((r) => r.exercise_id))];
-    const datasets = exIds.map((exId, idx) => {
-      const src = rows.filter((r) => r.exercise_id === exId);
-      const at = (lb) => src.find((x) => x.date === lb);
-      return {
-        label: src[0].exercise_name,
-        data: labels.map((lb) => {
-          const r = at(lb);
-          return r ? +((r.reps * 40) / r.work_sec).toFixed(1) : null;
-        }),
-        spanGaps: true,
-        borderColor: palette[idx % palette.length],
-        backgroundColor: palette[idx % palette.length],
-        pointStyle: labels.map((lb) => (at(lb)?.is_deload ? "triangle" : "circle")),
-        pointRadius: labels.map((lb) => (at(lb)?.is_deload ? 6 : 3)),
-        borderWidth: 2,
-        tension: 0.25,
-      };
+  const openZoom = (spec) => {
+    current = spec;
+    zRange = range;
+    document.getElementById("zoomTitle").textContent =
+      spec.kind === "weight" ? "Peso" : spec.kind === "waist" ? "Cintura" : `${spec.ex.name} · Día ${spec.dayId}`;
+    dlg.showModal();
+    document.documentElement.classList.add("noscroll");
+    drawZoom();
+  };
+  const closeZoom = () => {
+    if (dlg.open) dlg.close();
+  };
+  dlg.addEventListener("close", () => {
+    untrack(zChart);
+    zChart = null;
+    dlg.style.transform = "";
+    document.documentElement.classList.remove("noscroll");
+  });
+  document.getElementById("zoomClose").onclick = closeZoom;
+  dlg.addEventListener("click", (e) => {
+    // Toque en el backdrop (escritorio). El padding del propio dialog también
+    // tiene target === dlg: por eso se mira si el punto cae fuera del rectángulo.
+    if (e.target !== dlg) return;
+    const r = dlg.getBoundingClientRect();
+    const out = e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+    if (out) closeZoom();
+  });
+  // Deslizar hacia abajo desde la cabecera para cerrar.
+  let y0 = null;
+  const head = dlg.querySelector(".sheet-head");
+  const grip = dlg.querySelector(".sheet-grip");
+  for (const el of [head, grip]) {
+    el.addEventListener("touchstart", (e) => (y0 = e.touches[0].clientY), { passive: true });
+    el.addEventListener("touchmove", (e) => {
+      if (y0 == null) return;
+      const dy = Math.max(0, e.touches[0].clientY - y0);
+      dlg.style.transform = `translateY(${dy}px)`;
+    }, { passive: true });
+    el.addEventListener("touchend", (e) => {
+      const dy = y0 == null ? 0 : e.changedTouches[0].clientY - y0;
+      y0 = null;
+      if (dy > 90) closeZoom();
+      else dlg.style.transform = "";
     });
-    state.charts.push(
-      new Chart(document.getElementById(cid), { type: "line", data: { labels, datasets }, options: lineOpts() })
-    );
+    el.addEventListener("touchcancel", () => {
+      y0 = null;
+      dlg.style.transform = "";
+    });
   }
+  const zoomFrom = (el) => {
+    const k = el.dataset.zoom;
+    if (k === "ex") {
+      const g = strength.find((x) => x.dayId === +el.dataset.day);
+      const ex = g?.exercises.find((x) => x.id === +el.dataset.ex);
+      if (ex) openZoom({ kind: "ex", dayId: g.dayId, ex });
+    } else openZoom({ kind: k });
+  };
+  app.querySelectorAll("[data-zoom]").forEach((el) => {
+    el.addEventListener("click", () => zoomFrom(el));
+    el.addEventListener("keydown", (e) => {
+      if ((e.key === "Enter" || e.key === " ") && e.target === el && el.tagName !== "BUTTON") {
+        e.preventDefault();
+        zoomFrom(el);
+      }
+    });
+  });
 }
 
 // ------------------------------- boot ---------------------------------
