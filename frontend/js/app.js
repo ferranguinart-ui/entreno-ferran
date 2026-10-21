@@ -15,7 +15,7 @@ import {
 } from "./dash.js";
 
 const app = document.getElementById("app");
-const APP_VERSION = "13"; // = número de la caché en sw.js; se muestra en el inicio
+const APP_VERSION = "14"; // = número de la caché en sw.js; se muestra en el inicio
 const state = { boot: null, run: null, engine: null };
 
 const todayISO = () => new Date().toLocaleDateString("sv-SE"); // YYYY-MM-DD local
@@ -402,6 +402,7 @@ function viewSetup(dayId) {
 }
 
 // ------------------------------- run -----------------------------------
+const PREP_SEC = 5; // cuenta atrás al Iniciar y al Continuar tras una autopausa
 const RING_C = 2 * Math.PI * 54; // circunferencia del anillo (r=54 en un viewBox de 120)
 
 /** Reinicia una animación CSS de un solo uso (quitar clase, reflow, poner). */
@@ -480,7 +481,8 @@ function viewRun() {
   const onTick = (sec, step, i, remainingMs = step.seconds * 1000) => {
     setDial(sec);
     setRing(remainingMs, step);
-    if (state.engine?.status === "running" && beatAt(lastSec, sec)) replay($("dial"), "beat");
+    const st = state.engine?.status;
+    if ((st === "running" || st === "countdown") && beatAt(lastSec, sec)) replay($("dial"), "beat");
     lastSec = sec;
   };
 
@@ -514,7 +516,13 @@ function viewRun() {
     // Antes de iniciar: "Preparado" en vez de la fase del primer paso.
     const step = e ? e.step : steps[0];
     $("phase").textContent =
-      status === "idle" ? "Preparado" : status === "waiting" ? "Listo cuando quieras" : step.phase;
+      status === "idle"
+        ? "Preparado"
+        : status === "waiting"
+        ? "Listo cuando quieras"
+        : status === "countdown"
+        ? "Prepárate"
+        : step.phase;
     $("runpane").dataset.status = status;
   };
 
@@ -532,6 +540,7 @@ function viewRun() {
       onDone,
       muted,
       finalCue,
+      prepSec: PREP_SEC,
     });
 
   const finish = (doneRemates) => {

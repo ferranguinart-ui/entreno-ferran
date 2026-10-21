@@ -625,6 +625,130 @@ test("autopausa: stop() desde la espera limpia el estado", () => {
   assert.equal(e.waiting, false);
 });
 
+// ------------------------------ cuenta atrás ------------------------------
+const mkPrep = (steps = mkSteps(), prepSec = 5) => {
+  const calls = { step: [], kinds: [], tick: [] };
+  const e = new TimerEngine(steps, {
+    onTick: (s, st, i) => calls.tick.push([s, st.kind, i]),
+    onStep: (st, i) => calls.step.push([st.kind, i]),
+    muted: true,
+    prepSec,
+  });
+  e._stepCues = (st) => calls.kinds.push(st.kind);
+  return { e, calls };
+};
+
+test("cuenta atrás: sin prepSec arranca directo (comportamiento de siempre)", () => {
+  const { e } = mkPrep(mkSteps(), 0);
+  e.start();
+  assert.equal(e.status, "running");
+  e.stop();
+});
+
+test("cuenta atrás: Iniciar entra en countdown con el paso sintético 'prep'", () => {
+  const { e, calls } = mkPrep();
+  e.start();
+  assert.equal(e.status, "countdown");
+  assert.equal(e.i, 0);
+  assert.deepEqual(calls.step[0], ["prep", 0]);
+  assert.deepEqual(calls.kinds, ["prep"]);
+  assert.deepEqual(calls.tick.at(-1).slice(0, 2), [5, "prep"]);
+  assert.equal(e.durationSec(), 0, "la cuenta atrás no cuenta");
+  e.stop();
+});
+
+test("cuenta atrás: al acabar arranca el paso 0 entero con sus señales", () => {
+  const { e, calls } = mkPrep();
+  e.start();
+  e.prepEndsAt = Date.now() - 1;
+  e._loop();
+  assert.equal(e.status, "running");
+  assert.equal(e.i, 0);
+  assert.ok(Math.abs(e.stepEndsAt - Date.now() - e.step.seconds * 1000) < 50);
+  assert.deepEqual(calls.kinds, ["prep", e.step.kind]);
+  assert.deepEqual(calls.step.at(-1), [e.step.kind, 0]);
+  assert.ok(e.durationSec() < 2);
+  e.stop();
+});
+
+test("cuenta atrás: el botón principal la salta ('Empezar ya')", () => {
+  const { e } = mkPrep();
+  assert.equal(primaryLabel("countdown"), "Empezar ya");
+  e.start();
+  e.toggle();
+  assert.equal(e.status, "running");
+  assert.equal(e.i, 0);
+  e.stop();
+});
+
+test("cuenta atrás: pause() se ignora y skip la cierra y salta", () => {
+  const { e } = mkPrep();
+  e.start();
+  e.pause();
+  assert.equal(e.status, "countdown");
+  e.skip();
+  assert.equal(e.status, "running");
+  assert.equal(e.i, 1);
+  e.stop();
+});
+
+test("cuenta atrás: stop() la cancela", () => {
+  const { e } = mkPrep();
+  e.start();
+  e.stop();
+  assert.notEqual(e.status, "countdown");
+  assert.equal(e.running, false);
+});
+
+test("cuenta atrás: Continuar tras autopausa → countdown → paso entero; espera y cuenta atrás no cuentan", () => {
+  const { e, calls } = mkPrep(apSteps());
+  e.start();
+  e.toggle(); // salta la cuenta atrás inicial
+  e._jump(1);
+  e.stepEndsAt = Date.now() - 1;
+  e._loop(); // → espera en Aperturas
+  assert.equal(e.status, "waiting");
+  e.pauseStart -= 60_000; // un minuto esperando
+  calls.kinds.length = 0;
+  e.toggle(); // Continuar
+  assert.equal(e.status, "countdown");
+  assert.equal(e.i, 2);
+  e.prepEndsAt = Date.now() - 1;
+  e._loop();
+  assert.equal(e.status, "running");
+  assert.ok(Math.abs(e.stepEndsAt - Date.now() - 40_000) < 50);
+  assert.deepEqual(calls.kinds, ["prep", "work"]);
+  assert.ok(e.durationSec() < 5, `duración ${e.durationSec()}`);
+  e.stop();
+});
+
+test("cuenta atrás: skip/back durante ella solo suenan las señales del destino", () => {
+  const { e, calls } = mkPrep(); // P(work) D(rest) A ...
+  e.start();
+  e.skip();
+  assert.deepEqual(calls.kinds, ["prep", "rest"], "sin la señal del paso descartado");
+  assert.equal(e.i, 1);
+  assert.ok(e.durationSec() < 2, "t0 fijado");
+  e.stop();
+  const b = mkPrep();
+  b.e.start();
+  b.e.back(); // en i=0: el mismo paso, una sola vez
+  assert.deepEqual(b.calls.kinds, ["prep", "work"]);
+  b.e.stop();
+});
+
+test("cuenta atrás: no se hace antes de un descanso (p. ej. el remate empieza descansando)", () => {
+  const rest = mkSteps().slice(1); // empieza en descanso
+  const { e } = mkPrep(rest);
+  e.start();
+  assert.equal(e.status, "running");
+  e.stop();
+});
+
+test("stepStartCues: prep → 'Prepárate'", () => {
+  assert.equal(stepStartCues({ kind: "prep", name: "Press" }).speak, "Prepárate");
+});
+
 test("stepStartCues: fin de bloque (hay remate) -> doble pitido de descanso + Bloque terminado", () => {
   assert.deepEqual(stepStartCues({ kind: "blockDone" }), { tones: TONES.rest, speak: "Bloque terminado" });
 });

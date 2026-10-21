@@ -384,6 +384,7 @@ th { color: var(--muted); font-weight: 500; }
 .run[data-kind="work"]   { --phase: var(--c-work); }
 .run[data-kind="rest"]   { --phase: var(--c-rest); }
 .run[data-kind="warmup"] { --phase: var(--c-warm); }
+.run[data-kind="prep"]   { --phase: var(--c-warm); } /* cuenta atrás: mismo ámbar de "prepararse" */
 
 /* Aurora: manchas de luz del color de la fase, a la deriva y desenfocadas. */
 .run::before {

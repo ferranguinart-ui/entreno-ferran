@@ -120,6 +120,8 @@ export function stepStartCues(step) {
       return { tones: TONES.done, speak: "Entreno terminado" };
     case "blockDone": // acaba el bloque principal pero queda remate
       return { tones: TONES.rest, speak: "Bloque terminado" };
+    case "prep": // cuenta atrás antes de arrancar (Iniciar / Continuar)
+      return { tones: TONES.start, speak: "Prepárate" };
     case "autopause": // autopausa: el ejercicio espera a que se pulse Continuar
       return { tones: TONES.ready, speak: `${step.name}. Cuando estés listo` };
     default:
@@ -149,6 +151,7 @@ export function primaryLabel(status) {
   if (status === "running") return "Pausa";
   if (status === "paused") return "Reanudar";
   if (status === "waiting") return "Continuar";
+  if (status === "countdown") return "Empezar ya";
   return "Iniciar";
 }
 
@@ -196,7 +199,7 @@ function audioContext() {
 }
 
 export class TimerEngine {
-  constructor(steps, { onTick, onStep, onDone, muted = false, finalCue = true } = {}) {
+  constructor(steps, { onTick, onStep, onDone, muted = false, finalCue = true, prepSec = 0 } = {}) {
     this.steps = steps;
     this.onTick = onTick || (() => {});
     this.onStep = onStep || (() => {});
@@ -214,6 +217,10 @@ export class TimerEngine {
     this.pauseStart = 0;
     this.endedAt = 0;
     this.waiting = false; // autopausa: parado al inicio de un paso, esperando
+    this.prepSec = prepSec; // cuenta atrás antes de arrancar (0 = sin ella)
+    this.prepping = false;
+    this.prepEndsAt = 0;
+    this._afterPrep = null;
     this._lastSec = null;
     this._raf = null;
     this._wake = null;
@@ -233,6 +240,7 @@ export class TimerEngine {
   /** idle (sin iniciar) | running | paused | waiting (autopausa) | done */
   get status() {
     if (this.finished) return "done";
+    if (this.prepping) return "countdown";
     if (this.running) return "running";
     if (this.waiting) return "waiting";
     return this.started ? "paused" : "idle";
@@ -242,6 +250,7 @@ export class TimerEngine {
   toggle() {
     const s = this.status;
     if (s === "idle") this.start();
+    else if (s === "countdown") this._endPrep(); // "Empezar ya"
     else if (s === "running") this.pause();
     else if (s === "paused" || s === "waiting") this.resume();
   }
@@ -255,20 +264,71 @@ export class TimerEngine {
     this.started = true;
     this._acquireWake(); // sin await
     if (hasDoc()) document.addEventListener("visibilitychange", this._onVis);
-    this.t0 = Date.now();
-    this.running = true;
-    this.stepEndsAt = Date.now() + this.step.seconds * 1000;
+    const hadPrep = this._needsPrep();
+    this._withPrep((quiet) => {
+      this.t0 = Date.now(); // la cuenta atrás no cuenta en la duración
+      this.running = true;
+      this.stepEndsAt = Date.now() + this.step.seconds * 1000;
+      this._lastSec = null;
+      if (quiet) return; // skip/back: el destino pone sus propias señales
+      if (!hadPrep) this._playTones(TONES.start);
+      this._stepCues(this.step, hadPrep ? 0 : 200);
+      this.onStep(this.step, this.i);
+      this._loop();
+    });
+  }
+
+  /** Paso sintético que se pinta durante la cuenta atrás. */
+  _prepStep() {
+    return { ...this.step, kind: "prep", phase: "Prepárate", seconds: this.prepSec };
+  }
+
+  /** Hay cuenta atrás si está activada y el paso no es un descanso (el remate
+   *  empieza descansando: no tiene sentido "prepararse" para descansar). */
+  _needsPrep() {
+    return !!this.prepSec && this.step?.kind !== "rest";
+  }
+
+  /** Cuenta atrás de prepSec y luego `after(quiet)` (directo si no hace falta). */
+  _withPrep(after) {
+    if (!this._needsPrep()) return after(false);
+    this.prepping = true;
+    this.running = true; // el bucle y la visibilidad la tratan como en marcha
+    this.prepEndsAt = Date.now() + this.prepSec * 1000;
+    this._afterPrep = after;
     this._lastSec = null;
-    this._playTones(TONES.start);
-    this._stepCues(this.step, 200);
-    this.onStep(this.step, this.i);
+    const st = this._prepStep();
+    this._stepCues(st);
+    this.onStep(st, this.i);
+    this.onTick(this.prepSec, st, this.i, this.prepSec * 1000);
     this._loop();
+  }
+
+  /** Cierra la cuenta atrás. quiet = sin señales ni repintado (lo hará skip/back). */
+  _endPrep(quiet = false) {
+    if (!this.prepping) return;
+    this.prepping = false;
+    caf(this._raf);
+    const after = this._afterPrep;
+    this._afterPrep = null;
+    after?.(quiet);
   }
 
   _loop() {
     caf(this._raf);
     const tick = () => {
       if (!this.running) return;
+      if (this.prepping) {
+        const left = this.prepEndsAt - Date.now();
+        if (left <= 0) return this._endPrep();
+        const sec = Math.ceil(left / 1000);
+        const st = this._prepStep();
+        this._playTones(tickCues(st, this._lastSec, sec));
+        this._lastSec = sec;
+        this.onTick(sec, st, this.i, left);
+        this._raf = raf(tick);
+        return;
+      }
       const remaining = this.stepEndsAt - Date.now();
       if (remaining <= 0) {
         this._advance();
@@ -314,7 +374,7 @@ export class TimerEngine {
   }
 
   pause() {
-    if (!this.running) return;
+    if (!this.running || this.prepping) return; // en la cuenta atrás no hay pausa
     this.running = false;
     this.remainingMs = Math.max(0, this.stepEndsAt - Date.now());
     this.pauseStart = Date.now();
@@ -326,18 +386,26 @@ export class TimerEngine {
     if (this.running || this.finished) return;
     this._unlockAudio();
     this._unlockSpeech();
+    this._acquireWake();
+    if (this.waiting) {
+      // Continuar tras la autopausa: cuenta atrás y el ejercicio con sus señales.
+      // La espera y la cuenta atrás no cuentan en la duración.
+      this.waiting = false;
+      return this._withPrep((quiet) => {
+        this.pausedAccum += Date.now() - this.pauseStart;
+        this.stepEndsAt = Date.now() + this.remainingMs;
+        this.running = true;
+        this._lastSec = null;
+        if (quiet) return;
+        this._stepCues(this.step);
+        this.onStep(this.step, this.i);
+        this._loop();
+      });
+    }
     this.pausedAccum += Date.now() - this.pauseStart;
     this.stepEndsAt = Date.now() + this.remainingMs;
     this.running = true;
-    this._acquireWake();
-    if (this.waiting) {
-      // Continuar tras la autopausa: empieza el ejercicio con sus señales.
-      this.waiting = false;
-      this._lastSec = null;
-      this._stepCues(this.step);
-    } else {
-      this._playTones(TONES.start);
-    }
+    this._playTones(TONES.start);
     this._loop();
   }
 
@@ -360,6 +428,7 @@ export class TimerEngine {
 
   skip() {
     if (this.finished) return;
+    this._endPrep(true); // skip/back cierran la cuenta atrás sin sus señales
     if (this.i >= this.steps.length - 1) {
       if (this.started) this._finish();
       return;
@@ -369,6 +438,7 @@ export class TimerEngine {
 
   back() {
     if (this.finished) return;
+    this._endPrep(true);
     this._jump(Math.max(0, this.i - 1));
   }
 
@@ -383,15 +453,19 @@ export class TimerEngine {
   _teardown() {
     this.running = false;
     this.waiting = false;
+    this.prepping = false;
+    this._afterPrep = null;
     caf(this._raf);
     if (hasDoc()) document.removeEventListener("visibilitychange", this._onVis);
     this._releaseWake();
   }
 
   durationSec() {
-    if (!this.started) return 0;
-    // Terminado: hasta el final. En pausa: hasta el inicio de la pausa.
-    const end = this.finished ? this.endedAt : this.running ? Date.now() : this.pauseStart || Date.now();
+    if (!this.started || !this.t0) return 0; // sin t0: aún en la cuenta atrás inicial
+    // Terminado: hasta el final. En pausa (o en la cuenta atrás tras una espera):
+    // hasta el inicio de la pausa.
+    const live = this.running && !this.prepping;
+    const end = this.finished ? this.endedAt : live ? Date.now() : this.pauseStart || Date.now();
     return Math.max(0, Math.round((end - this.t0 - this.pausedAccum) / 1000));
   }
 
