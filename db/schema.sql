@@ -162,3 +162,26 @@ create table if not exists audit_log (
   result jsonb
 );
 create index if not exists audit_log_at_idx on audit_log (at);
+
+-- ---------------------------------------------------------------------------
+-- OAuth del servidor MCP: códigos de autorización, tokens de acceso y de
+-- refresco. Solo se guarda el hash SHA-256 del token, nunca el token.
+-- family agrupa un login y sus refrescos: si se reutiliza un refresh ya
+-- usado, se revoca la familia entera. La app no la usa.
+-- ---------------------------------------------------------------------------
+create table if not exists mcp_tokens (
+  token_hash     text primary key,
+  kind           text not null check (kind in ('code','access','refresh')),
+  family         uuid not null,
+  client_id      text not null,
+  scope          text not null,
+  resource       text not null,
+  redirect_uri   text,          -- solo code
+  code_challenge text,          -- solo code (PKCE S256)
+  expires_at     timestamptz not null,
+  used_at        timestamptz,   -- code/refresh: un solo uso
+  revoked_at     timestamptz,
+  created_at     timestamptz not null default now()
+);
+create index if not exists mcp_tokens_family_idx on mcp_tokens (family);
+create index if not exists mcp_tokens_expires_idx on mcp_tokens (expires_at);

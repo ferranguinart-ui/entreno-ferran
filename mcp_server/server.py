@@ -11,6 +11,7 @@ import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlsplit
 from typing import Annotated, Any, Literal
 
 from dotenv import load_dotenv
@@ -23,11 +24,13 @@ from starlette.responses import JSONResponse
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 import db  # noqa: E402  (backend/db.py: el mismo pool que la app)
 
+from mcp.server.auth.settings import AuthSettings  # noqa: E402
 from mcp.server.mcpserver import MCPServer  # noqa: E402
 from mcp.server.mcpserver.exceptions import ToolError  # noqa: E402
 from mcp.server.transport_security import TransportSecuritySettings  # noqa: E402
 from mcp.types import ToolAnnotations  # noqa: E402
 
+import auth  # noqa: E402
 import queries as q  # noqa: E402
 import writes as w  # noqa: E402
 
@@ -43,6 +46,14 @@ mcp = MCPServer(
         "Fechas en YYYY-MM-DD, zona horaria Europe/Madrid; semanas de lunes a domingo. "
         "Peso corporal en kg. Kg de ejercicio = solo discos (las barras de las mancuernas pesan ~0): "
         "en material 'pair' es el peso POR mancuerna. Para saber si toca subir o bajar peso usa get_targets."
+    ),
+    # Siempre con OAuth: no hay modo sin autenticación (ver auth.py).
+    token_verifier=auth.DbTokenVerifier(),
+    auth=AuthSettings(
+        issuer_url=auth.base_url(),
+        resource_server_url=auth.resource_url(),
+        required_scopes=[auth.SCOPE],
+        validate_token_resource=True,
     ),
 
 )
@@ -214,6 +225,13 @@ async def delete_entry(
     return await _audited("delete_entry", {"type": type, "id": id}, w.delete_entry(type, id))
 
 
+# Servidor de autorización (rutas sin auth del SDK, como debe ser).
+mcp.custom_route("/.well-known/oauth-authorization-server", methods=["GET"])(auth.as_metadata)
+mcp.custom_route("/authorize", methods=["GET"])(auth.authorize_get)
+mcp.custom_route("/authorize", methods=["POST"])(auth.authorize_post)
+mcp.custom_route("/token", methods=["POST"])(auth.token)
+
+
 @mcp.custom_route("/health", methods=["GET"])
 async def health(_request: Request) -> JSONResponse:
     try:
@@ -223,26 +241,33 @@ async def health(_request: Request) -> JSONResponse:
         return JSONResponse({"status": "error", "db": "unreachable"}, status_code=503)
 
 
-_hosts = [h for h in os.environ.get("MCP_ALLOWED_HOSTS", "").split(",") if h]
-_mcp_app = mcp.streamable_http_app(
-    stateless_http=True,
-    json_response=True,
-    transport_security=TransportSecuritySettings(
-        allowed_hosts=_hosts + ["127.0.0.1:*", "localhost:*"],
-        allowed_origins=["http://127.0.0.1:*", "http://localhost:*"],
-    ),
-)
+def create_app() -> Starlette:
+    """App ASGI completa. Una nueva por arranque: el session manager del SDK es de un solo uso."""
+    public = urlsplit(auth.base_url()).netloc
+    hosts = [h for h in os.environ.get("MCP_ALLOWED_HOSTS", "").split(",") if h] + [public]
+    mcp_app = mcp.streamable_http_app(
+        stateless_http=True,
+        json_response=True,
+        transport_security=TransportSecuritySettings(
+            allowed_hosts=hosts + ["127.0.0.1:*", "localhost:*"],
+            allowed_origins=["http://127.0.0.1:*", "http://localhost:*"],
+        ),
+    )
+    manager = mcp.session_manager
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        # Un solo pool para todo el proceso (el lifespan de MCPServer iría por petición).
+        await db.open_pool()
+        try:
+            async with manager.run():
+                yield
+        finally:
+            await db.close_pool()
+
+    app = Starlette(routes=[Mount("/", app=mcp_app)], lifespan=lifespan)
+    app.state.mcp_app = mcp_app
+    return app
 
 
-@asynccontextmanager
-async def lifespan(_app):
-    # Un solo pool para todo el proceso (el lifespan de MCPServer iría por petición).
-    await db.open_pool()
-    try:
-        async with mcp.session_manager.run():
-            yield
-    finally:
-        await db.close_pool()
-
-
-app = Starlette(routes=[Mount("/", app=_mcp_app)], lifespan=lifespan)
+app = create_app()

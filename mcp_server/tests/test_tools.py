@@ -118,5 +118,5 @@ def test_health(db_url, monkeypatch):
 
     import server
 
-    with TestClient(server.app) as c:
+    with TestClient(server.create_app()) as c:
         assert c.get("/health").json() == {"status": "ok", "db": "ok"}
