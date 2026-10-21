@@ -118,3 +118,38 @@ test("targetsFor: 'hoy toca' por ejercicio desde el historial del endpoint", () 
 test("progression: si todo el historial es deload → elegir peso, con el kg del deload de referencia", () => {
   assert.deepEqual(progression([ses(6.5, [12], true)], { equipment: "pair", rep_min: 10, rep_max: 14 }), { action: "start", kg: 6.5 });
 });
+
+import { detectPRs } from "./plates.js";
+
+test("detectPRs: peso máximo nuevo y más reps que nunca con un peso", () => {
+  const records = {
+    10: { max_kg: 8, reps_by_kg: { "8.0": 14, "7.5": 15 } },
+    11: { max_kg: 5, reps_by_kg: { "5.0": 14 } },
+    14: { max_kg: null, reps_by_kg: { 0: 20 } },
+  };
+  const logs = [
+    { exercise_id: 10, round_number: 1, reps: 10, weight_kg: 9 }, // peso nuevo → récord de kg
+    { exercise_id: 11, round_number: 1, reps: 15, weight_kg: 5 }, // 15 > 14 con 5 kg
+    { exercise_id: 11, round_number: 2, reps: 16, weight_kg: 5 },
+    { exercise_id: 14, round_number: 1, reps: 22, weight_kg: null }, // peso corporal
+  ];
+  assert.deepEqual(detectPRs(records, logs), [
+    { exerciseId: 10, type: "kg", kg: 9, prev: 8 },
+    { exerciseId: 11, type: "reps", kg: 5, reps: 16, prev: 14 },
+    { exerciseId: 14, type: "reps", kg: null, reps: 22, prev: 20 },
+  ]);
+});
+
+test("detectPRs: la primera vez no es récord; igualar tampoco", () => {
+  const logs = [
+    { exercise_id: 12, round_number: 1, reps: 12, weight_kg: 7.5 },
+    { exercise_id: 11, round_number: 1, reps: 14, weight_kg: 5 },
+  ];
+  assert.deepEqual(detectPRs({ 11: { max_kg: 5, reps_by_kg: { "5.0": 14 } } }, logs), []);
+});
+
+test("detectPRs: claves de peso iguales a las de Python (4,75 no se confunde con 4,8)", () => {
+  const records = { 30: { max_kg: 10, reps_by_kg: { "4.8": 30, "4.75": 10 } } };
+  const logs = [{ exercise_id: 30, round_number: 1, reps: 12, weight_kg: 4.75 }];
+  assert.deepEqual(detectPRs(records, logs), [{ exerciseId: 30, type: "reps", kg: 4.75, reps: 12, prev: 10 }]);
+});

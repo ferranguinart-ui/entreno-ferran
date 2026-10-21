@@ -1,7 +1,7 @@
 import { api } from "./api.js";
 import { buildSteps, TimerEngine, primaryLabel, readMuted, writeMuted, autopauseState } from "./timer.js";
 import { dialText, ringFraction, changedIndices, beatAt } from "./fx.js";
-import { loadOptions, platesText, targetsFor } from "./plates.js";
+import { loadOptions, platesText, targetsFor, detectPRs } from "./plates.js";
 import { musclesFor, bodyMapSVG, bestView } from "./muscles.js";
 import { weekProgress, nextDayId, mondayISO, stepValue, holdInterval, groupByWeek } from "./stats.js";
 import {
@@ -17,7 +17,7 @@ import {
 } from "./dash.js";
 
 const app = document.getElementById("app");
-const APP_VERSION = "16"; // = número de la caché en sw.js; se muestra en el inicio
+const APP_VERSION = "17"; // = número de la caché en sw.js; se muestra en el inicio
 const state = { boot: null, run: null, engine: null };
 
 const todayISO = () => new Date().toLocaleDateString("sv-SE"); // YYYY-MM-DD local
@@ -77,6 +77,7 @@ const ICON = {
   expand: ico('<path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/>'),
   close: ico('<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'),
   check: ico('<path d="M20 6 9 17l-5-5"/>'),
+  trophy: ico('<path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>'),
   play: ico('<polygon points="6 3 20 12 6 21 6 3"/>'),
   logout: ico('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>'),
   flame: ico('<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>'),
@@ -321,9 +322,11 @@ const UNIT = { pair: "por mancuerna", single: "en la mancuerna", bar: "en la bar
 const weighted = (e) => e.equipment && e.equipment !== "bodyweight";
 const kgLabel = (kg) => (kg == null ? "—" : `${String(kg).replace(".", ",")} kg`);
 state.targets = {}; // dayId → targets (caché de la sesión)
+state.lastLogs = {}; // dayId → historial crudo de /api/last_logs
 async function loadTargets(day) {
   try {
     const last = await api.lastLogs(day.id);
+    state.lastLogs[day.id] = last;
     state.targets[day.id] = targetsFor(day.exercises, last);
   } catch (_) {
     state.targets[day.id] ||= targetsFor(day.exercises, {});
@@ -452,6 +455,8 @@ function viewSetup(dayId) {
         date: todayISO(),
         source: "timer",
         targets: state.targets[day.id] || null,
+        lastLogs: state.lastLogs[day.id] || {},
+        roundLog: {}, // exId → {ronda: reps} apuntadas en el descanso
       };
       location.hash = "#/run";
     };
@@ -476,6 +481,12 @@ function annotate(steps, targets) {
   for (const st of steps) st.target = targets && st.exerciseId != null ? targets[st.exerciseId] || null : null;
   for (let i = 0; i < steps.length; i++) {
     const nxt = steps.slice(i + 1).find((x) => x.kind === "work" || x.kind === "warmup");
+    // El descanso justo después de un ejercicio sirve para apuntar sus reps.
+    const prev = steps[i - 1];
+    steps[i].prevWork =
+      steps[i].kind === "rest" && prev?.kind === "work" && prev.exerciseId != null
+        ? { exerciseId: prev.exerciseId, round: prev.round || 1, name: prev.name }
+        : null;
     // El descanso enseña los músculos del ejercicio que viene.
     steps[i].nextMuscle = nxt?.muscle ?? null;
     steps[i].nextMuscle2 = nxt?.muscle2 ?? null;
@@ -525,6 +536,14 @@ function viewRun() {
         </div>
       </div>
       <div id="exinfo" class="instructions" role="button" tabindex="0" title="Toca para verlo entero"></div>
+      <div id="restlog" class="restlog" hidden>
+        <span id="rlLabel" class="small"></span>
+        <div class="rep-step">
+          <button type="button" class="glass round" data-step="-1" aria-label="Una rep menos">${ICON.minus}</button>
+          <input id="rlInput" class="reps" type="number" inputmode="numeric" min="0" max="999" placeholder="—" aria-label="Reps de la ronda que acabas de hacer" />
+          <button type="button" class="glass round" data-step="1" aria-label="Una rep más">${ICON.plus}</button>
+        </div>
+      </div>
       <div id="next" class="next"></div>
       <div class="bar"><div id="fill" class="fill"></div></div>
       <div class="run-controls">
@@ -606,6 +625,21 @@ function viewRun() {
     $("extgt").innerHTML = tg;
     $("extgt").hidden = !tg;
     const info = (step.kind === "rest" ? step.nextInstructions : step.instructions) || "";
+    // Descanso tras un ejercicio: en el hueco de las instrucciones se apuntan sus reps
+    // (las del siguiente siguen a un toque, en el mapa).
+    const pw = step.kind === "rest" ? step.prevWork : null;
+    $("restlog").hidden = !pw;
+    $("exinfo").hidden = !!pw;
+    if (pw) {
+      $("rlLabel").textContent = `¿Cuántas en ${pw.name} · R${pw.round}?`;
+      const inp = $("rlInput");
+      inp.dataset.ex = pw.exerciseId;
+      inp.dataset.round = pw.round;
+      const done = r.roundLog?.[pw.exerciseId]?.[pw.round];
+      const lastSame = (r.lastLogs?.[pw.exerciseId] || r.lastLogs?.[String(pw.exerciseId)] || [])[0]?.rounds?.find((x) => x.round === pw.round)?.reps;
+      inp.value = done ?? lastSame ?? "";
+      inp.classList.toggle("ghosted", done == null); // sugerido, aún no apuntado
+    }
     $("exinfo").textContent = info;
     // Sin texto no es un botón (accesibilidad).
     $("exinfo").tabIndex = info ? 0 : -1;
@@ -725,6 +759,22 @@ function viewRun() {
   };
   // Mapa muscular ampliado: tocar el mini mapa; cerrar con ✕, Escape, fuera o deslizando.
   $("mapbtn").onclick = openMap;
+  // Reps en el descanso: cada cambio queda apuntado para el registro final.
+  bindSteppers($("restlog"));
+  $("rlInput").addEventListener("input", (e) => {
+    const inp = e.target;
+    const ex = +inp.dataset.ex;
+    const round = +inp.dataset.round;
+    if (!ex) return;
+    r.roundLog ||= {};
+    r.roundLog[ex] ||= {};
+    r.roundLog[ex][round] = inp.value === "" ? null : Math.min(999, Math.max(0, Math.round(+inp.value)));
+    inp.classList.remove("ghosted");
+  });
+  // Tocar el número sugerido (gris) lo da por bueno sin tener que cambiarlo.
+  $("rlInput").addEventListener("focus", (e) => {
+    if (e.target.classList.contains("ghosted") && e.target.value !== "") e.target.dispatchEvent(new Event("input"));
+  });
   // Las instrucciones van recortadas: tocarlas abre la hoja con el texto entero.
   $("exinfo").onclick = openMap;
   $("exinfo").onkeydown = (e) => {
@@ -847,10 +897,12 @@ const kgSelect = (e, round, kg) => {
 };
 
 /** Tarjeta de un ejercicio en el registro: una fila por ronda (kg + reps). */
-const exerciseLog = (e, dayId, rounds, target, last) => {
+const exerciseLog = (e, dayId, rounds, target, last, done) => {
   const w = weighted(e);
   const kg0 = target?.kg ?? last?.kg ?? null;
-  const lastReps = (k) => last?.rounds?.find((x) => x.round === k)?.reps ?? null;
+  // Lo apuntado en el descanso manda; si no, lo de la última vez.
+  // (vaciado en el descanso = null: se respeta; no tocado = undefined: la última vez)
+  const lastReps = (k) => (done && k in done ? done[k] : last?.rounds?.find((x) => x.round === k)?.reps ?? null);
   const rows = Array.from({ length: rounds }, (_, i) => i + 1)
     .map(
       (k) => `<div class="round-row" data-round="${k}">
@@ -899,6 +951,7 @@ function bindSteppers(root) {
       const v = stepValue(input.value, d);
       if (String(v) === input.value) return;
       input.value = String(v);
+      input.dispatchEvent(new Event("input", { bubbles: true })); // avisa a quien escuche (descanso)
       replay(input, "tick");
     };
     let held = false;
@@ -946,7 +999,11 @@ async function viewLog() {
   const { day } = r;
   const list = [...mainExercises(day), ...(r.doneRemates || [])];
   let last = {};
-  try { last = await api.lastLogs(day.id); } catch (_) {}
+  let records = null;
+  [last, records] = await Promise.all([
+    api.lastLogs(day.id).catch(() => ({})),
+    api.records(day.id).catch(() => null), // antes de guardar: para detectar récords
+  ]);
   const targets = r.targets || targetsFor(day.exercises, last);
   const fromTimer = r.source === "timer";
   const week = weekProgress(
@@ -984,7 +1041,8 @@ async function viewLog() {
                     day.id,
                     e.block === "remate" ? e.rounds || 1 : r.roundsCompleted ?? r.rounds,
                     targets[e.id],
-                    (last[e.id] || last[String(e.id)] || [])[0]
+                    (last[e.id] || last[String(e.id)] || [])[0],
+                    r.roundLog?.[e.id]
                   )
                 )
                 .join("")
@@ -1034,11 +1092,41 @@ async function viewLog() {
       for (const id of ["save", "skip"]) document.getElementById(id).disabled = false;
       return toast("No se pudo guardar: revisa los datos");
     }
+    const prs = records ? detectPRs(records, logs) : [];
+    if (prs.length) return celebratePRs(prs, list, day.id, res.queued);
     toast(res.queued ? "Guardado local — se subirá al reconectar" : "Sesión guardada");
     location.hash = "#/";
   };
   document.getElementById("save").onclick = () => save(true);
   document.getElementById("skip").onclick = () => save(false);
+}
+
+/** Récords personales: tarjeta de celebración antes de volver al inicio. */
+function celebratePRs(prs, exercises, dayId, queued) {
+  const nameOf = (id) => exercises.find((e) => e.id === id)?.name || "Ejercicio";
+  const line = (p) =>
+    p.type === "kg"
+      ? `<li><strong>${esc(nameOf(p.exerciseId))}</strong><span>nuevo peso máximo: <b>${kgLabel(p.kg)}</b> (antes ${kgLabel(p.prev)})</span></li>`
+      : `<li><strong>${esc(nameOf(p.exerciseId))}</strong><span><b>${p.reps} reps</b>${p.kg != null ? ` con ${kgLabel(p.kg)}` : ""} (antes ${p.prev})</span></li>`;
+  const ov = document.createElement("div");
+  ov.className = "overlay show pr-ov";
+  ov.setAttribute("role", "dialog");
+  ov.setAttribute("aria-modal", "true");
+  ov.setAttribute("aria-labelledby", "prTitle");
+  ov.innerHTML = `<div class="card pr-card" style="--day: var(--d${dayId})">
+    <div class="pr-badge" aria-hidden="true">${ICON.trophy}</div>
+    <h2 id="prTitle">${prs.length > 1 ? `¡${prs.length} récords nuevos!` : "¡Nuevo récord!"}</h2>
+    <ul class="pr-list">${prs.map(line).join("")}</ul>
+    ${queued ? `<p class="muted small">Guardado en el móvil: se subirá al reconectar.</p>` : ""}
+    <button class="primary big-btn" id="prOk">¡Vamos!</button>
+  </div>`;
+  const pane = app.querySelector(".pane");
+  for (const el of pane.children) el.inert = true; // el registro de detrás no recibe foco
+  pane.appendChild(ov);
+  confetti([cssVar(`--d${dayId}`), cssVar("--c-work"), cssVar("--c-warm"), "#ffffff"]);
+  const ok = ov.querySelector("#prOk");
+  ok.focus();
+  ok.onclick = () => (location.hash = "#/");
 }
 
 // ------------------------------- manual --------------------------------

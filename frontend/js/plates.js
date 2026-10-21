@@ -127,3 +127,37 @@ export function targetsFor(exercises, lastLogs) {
   }
   return out;
 }
+
+/** Récords de la sesión frente a /api/records (antes de guardarla).
+ *  kg: peso por encima del máximo de siempre. reps: más reps que nunca con ese
+ *  peso. La primera vez que se apunta un ejercicio no cuenta; igualar tampoco.
+ *  Uno por ejercicio (el de kg manda). */
+export function detectPRs(records, logs) {
+  const byEx = new Map();
+  for (const l of logs) {
+    if (!byEx.has(l.exercise_id)) byEx.set(l.exercise_id, []);
+    byEx.get(l.exercise_id).push(l);
+  }
+  // Misma clave que Python str(float): 5 → "5.0", 5.5 → "5.5", 4.75 → "4.75".
+  const key = (kg) => (kg == null ? "0" : Number.isInteger(Number(kg)) ? Number(kg).toFixed(1) : String(Number(kg)));
+  const out = [];
+  for (const [exId, rows] of byEx) {
+    const rec = records?.[exId] || records?.[String(exId)];
+    if (!rec) continue;
+    const kgs = rows.map((r) => r.weight_kg).filter((k) => k != null);
+    const maxKg = kgs.length ? Math.max(...kgs) : null;
+    if (maxKg != null && rec.max_kg != null && maxKg > rec.max_kg) {
+      out.push({ exerciseId: exId, type: "kg", kg: maxKg, prev: rec.max_kg });
+      continue;
+    }
+    let best = null;
+    for (const r of rows) {
+      if (r.reps == null) continue;
+      const prev = rec.reps_by_kg?.[key(r.weight_kg)];
+      if (prev == null || r.reps <= prev) continue;
+      if (!best || r.reps > best.reps) best = { exerciseId: exId, type: "reps", kg: r.weight_kg ?? null, reps: r.reps, prev };
+    }
+    if (best) out.push(best);
+  }
+  return out;
+}

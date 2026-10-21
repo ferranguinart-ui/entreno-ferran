@@ -57,6 +57,7 @@ export const api = {
   bootstrap: () => req("GET", "/api/bootstrap"),
   prefill: (dayId) => req("GET", `/api/prefill?day_id=${dayId}`),
   lastLogs: (dayId) => req("GET", `/api/last_logs?day_id=${dayId}`),
+  records: (dayId) => req("GET", `/api/records?day_id=${dayId}`),
   sessions: (limit = 30) => req("GET", `/api/sessions?limit=${limit}`),
   measurements: () => req("GET", "/api/measurements"),
   dashboard: () => req("GET", "/api/dashboard"),

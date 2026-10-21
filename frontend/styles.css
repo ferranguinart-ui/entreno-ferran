@@ -756,6 +756,31 @@ input.reps::-webkit-outer-spin-button, input.reps::-webkit-inner-spin-button { -
 input.reps { -moz-appearance: textfield; }
 .tick { animation: roll var(--dur-fast) var(--ease-out); }
 
+/* Reps en el descanso (runner): mismo stepper que el registro. */
+/* Pregunta y contador en una fila: ocupa lo mismo que las 3 líneas de instrucciones. */
+.restlog { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 4px; text-align: left; }
+.restlog[hidden], .instructions[hidden] { display: none; }
+.restlog .small { color: var(--fg); font-weight: 600; max-width: 150px; line-height: 1.3; }
+.restlog .rep-step input.reps { width: 72px; font-size: 24px; }
+input.reps.ghosted { color: var(--muted); } /* sugerido (la última vez), aún sin tocar */
+
+/* Récords personales. */
+.pr-card { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; padding: 22px 18px; }
+.pr-badge {
+  width: 64px; height: 64px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--c-warm); color: var(--c-ink);
+  box-shadow: 0 0 26px var(--c-warm);
+  animation: pop 0.5s var(--ease-spring);
+}
+.pr-badge .ico { width: 34px; height: 34px; }
+.pr-card h2 { font-size: 24px; font-weight: 800; }
+.pr-list { list-style: none; margin: 0; padding: 0; width: 100%; display: flex; flex-direction: column; gap: 8px; text-align: left; }
+.pr-list li { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 12px; background: var(--glass); border: 1px solid var(--glass-line); border-left: 4px solid var(--day); }
+.pr-list span { color: var(--muted); font-size: 14px; }
+.pr-list b { color: var(--fg); }
+@media (prefers-reduced-motion: reduce) { .pr-badge { animation: none; } }
+
 /* -------------------- sesión manual -------------------- */
 .day-pick { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .pick { display: flex; align-items: center; gap: 10px; cursor: pointer; color: var(--fg); padding: 14px; transition: border-color var(--dur-fast), background var(--dur-fast), transform var(--dur-fast) var(--ease-out); }

@@ -229,3 +229,26 @@ def test_dashboard_strength_includes_kg(auth_client):
     c.post(f"/api/sessions/{sid}/logs", json={"logs": [{"exercise_id": 13, "round_number": 1, "reps": 12, "weight_kg": 6.5}]})
     rows = c.get("/api/dashboard").json()["strength"]
     assert any(r["exercise_id"] == 13 and r.get("weight_kg") == 6.5 for r in rows)
+
+
+# -------------------------------- récords ---------------------------------
+def test_records_max_kg_and_reps_per_kg(auth_client):
+    c = auth_client
+    s1 = _new_session(c, "2026-08-01")
+    c.post(f"/api/sessions/{s1}/logs", json={"logs": [
+        {"exercise_id": 11, "round_number": 1, "reps": 12, "weight_kg": 5},
+        {"exercise_id": 11, "round_number": 2, "reps": 14, "weight_kg": 5},
+    ]})
+    s2 = _new_session(c, "2026-08-04")
+    c.post(f"/api/sessions/{s2}/logs", json={"logs": [
+        {"exercise_id": 11, "round_number": 1, "reps": 10, "weight_kg": 5.5},
+        {"exercise_id": 14, "round_number": 1, "reps": 20, "weight_kg": None},
+    ]})
+    r = c.get("/api/records?day_id=1").json()
+    assert r["11"]["max_kg"] == 5.5
+    assert r["11"]["reps_by_kg"] == {"5.0": 14, "5.5": 10}
+    assert r["14"] == {"max_kg": None, "reps_by_kg": {"0": 20}}, "sin peso = clave 0"
+
+
+def test_records_requires_auth(client):
+    assert client.get("/api/records?day_id=1").status_code == 401

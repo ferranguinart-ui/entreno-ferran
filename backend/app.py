@@ -244,6 +244,33 @@ async def last_logs(day_id: int, limit: int = 6, user: str = Depends(current_use
     return out
 
 
+@app.get("/api/records")
+async def records(day_id: int, user: str = Depends(current_user)):
+    """Mejores marcas de siempre por ejercicio del día: kg máximo y, para cada
+    peso, el máximo de reps en una ronda. Sin peso → clave "0"."""
+    rows = await db.fetch(
+        """
+        select sl.exercise_id, sl.weight_kg, max(sl.reps) as reps
+        from session_logs sl
+        join sessions s on s.id = sl.session_id
+        join exercises e on e.id = sl.exercise_id
+        where s.user_id = %s and e.day_id = %s
+          and (sl.reps is not null or sl.weight_kg is not null)
+        group by sl.exercise_id, sl.weight_kg
+        """,
+        user, day_id,
+    )
+    out: dict[str, dict] = {}
+    for r in rows:
+        rec = out.setdefault(str(r["exercise_id"]), {"max_kg": None, "reps_by_kg": {}})
+        kg = float(r["weight_kg"]) if r["weight_kg"] is not None else None
+        if kg is not None and (rec["max_kg"] is None or kg > rec["max_kg"]):
+            rec["max_kg"] = kg
+        if r["reps"] is not None:
+            rec["reps_by_kg"][str(kg) if kg is not None else "0"] = r["reps"]
+    return out
+
+
 @app.post("/api/sessions")
 async def create_session(body: SessionIn, user: str = Depends(current_user)):
     row = await db.fetchrow(
