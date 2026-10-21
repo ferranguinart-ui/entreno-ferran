@@ -107,6 +107,8 @@ create table if not exists sessions (
 );
 create index if not exists sessions_user_date_idx on sessions (user_id, date);
 create index if not exists sessions_day_date_idx on sessions (day_id, date);
+-- Nota libre de la sesión (la escribe el MCP al dictar un entreno; la app la ignora).
+alter table sessions add column if not exists note text;
 
 -- ---------------------------------------------------------------------------
 -- Registro de reps por ejercicio.
@@ -146,3 +148,17 @@ create table if not exists body_measurements (
   unique (user_id, date)
 );
 create index if not exists body_meas_user_date_idx on body_measurements (user_id, date);
+
+-- ---------------------------------------------------------------------------
+-- Auditoría del servidor MCP: cada escritura que hace Claude (también las
+-- rechazadas), con sus datos y el resultado. La app no la usa.
+-- ---------------------------------------------------------------------------
+create table if not exists audit_log (
+  id     bigserial primary key,
+  at     timestamptz not null default now(),
+  tool   text not null,
+  args   jsonb not null,
+  ok     boolean not null,
+  result jsonb
+);
+create index if not exists audit_log_at_idx on audit_log (at);
