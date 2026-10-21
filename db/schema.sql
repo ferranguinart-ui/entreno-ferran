@@ -78,6 +78,14 @@ alter table exercises add column if not exists instructions text;
 -- Continuar. Preferencia del usuario: seed.sql NO la toca (se re-aplica en
 -- cada deploy y la borraría).
 alter table exercises add column if not exists autopause boolean not null default false;
+-- Material y rango de reps en 40 s (doble progresión). Se rellenan una vez
+-- desde seed.sql solo si están vacíos: luego son de Ferran, el deploy no los pisa.
+--   pair = 2 mancuernas iguales (kg POR mancuerna) · single = 1 mancuerna
+--   bar = las 2 mancuernas unidas en barra · bodyweight = sin peso
+alter table exercises add column if not exists equipment text
+  check (equipment in ('pair','single','bar','bodyweight'));
+alter table exercises add column if not exists rep_min smallint;
+alter table exercises add column if not exists rep_max smallint;
 
 -- ---------------------------------------------------------------------------
 -- Sesiones. Una por entrenamiento (timer o manual).
@@ -115,6 +123,9 @@ create table if not exists session_logs (
   reps         smallint,
   unique (session_id, exercise_id, round_number)
 );
+-- kg de discos por ronda (por mancuerna en "pair"; la carga en "single"/"bar").
+-- null = no apuntado. Las barras son de plástico: no suman.
+alter table session_logs add column if not exists weight_kg numeric(4,2);
 
 -- ---------------------------------------------------------------------------
 -- Medidas corporales. weight/waist ambas nullable (semanas sin cinta).

@@ -745,6 +745,11 @@ test("cuenta atrás: no se hace antes de un descanso (p. ej. el remate empieza d
   e.stop();
 });
 
+test("stepStartCues: el descanso anuncia el peso del siguiente si lo hay", () => {
+  assert.equal(stepStartCues({ kind: "rest", nextName: "Press militar", nextKg: 7.5 }).speak, "Descanso. Siguiente: Press militar, 7,5 kilos");
+  assert.equal(stepStartCues({ kind: "rest", nextName: "Press militar", nextKg: null }).speak, "Descanso. Siguiente: Press militar");
+});
+
 test("stepStartCues: prep → 'Prepárate'", () => {
   assert.equal(stepStartCues({ kind: "prep", name: "Press" }).speak, "Prepárate");
 });

@@ -114,7 +114,11 @@ export function stepStartCues(step) {
     case "rest":
       return {
         tones: TONES.rest,
-        speak: step.nextName && step.nextName !== "Fin" ? `Descanso. Siguiente: ${step.nextName}` : "Descanso",
+        speak:
+          step.nextName && step.nextName !== "Fin"
+            ? `Descanso. Siguiente: ${step.nextName}` +
+              (step.nextKg != null ? `, ${String(step.nextKg).replace(".", ",")} kilos` : "")
+            : "Descanso",
       };
     case "done":
       return { tones: TONES.done, speak: "Entreno terminado" };

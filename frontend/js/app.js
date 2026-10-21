@@ -1,6 +1,7 @@
 import { api } from "./api.js";
 import { buildSteps, TimerEngine, primaryLabel, readMuted, writeMuted, autopauseState } from "./timer.js";
 import { dialText, ringFraction, changedIndices, beatAt } from "./fx.js";
+import { loadOptions, platesText, targetsFor } from "./plates.js";
 import { weekProgress, nextDayId, mondayISO, stepValue, holdInterval, groupByWeek } from "./stats.js";
 import {
   withAvg,
@@ -15,7 +16,7 @@ import {
 } from "./dash.js";
 
 const app = document.getElementById("app");
-const APP_VERSION = "14"; // = número de la caché en sw.js; se muestra en el inicio
+const APP_VERSION = "15"; // = número de la caché en sw.js; se muestra en el inicio
 const state = { boot: null, run: null, engine: null };
 
 const todayISO = () => new Date().toLocaleDateString("sv-SE"); // YYYY-MM-DD local
@@ -313,6 +314,51 @@ function viewHome() {
     .catch(() => {}); // sin red: se queda con lo cacheado
 }
 
+// ----------------------------- hoy toca --------------------------------
+// Peso recomendado por ejercicio (doble progresión, js/plates.js).
+const UNIT = { pair: "por mancuerna", single: "en la mancuerna", bar: "en la barra" };
+const weighted = (e) => e.equipment && e.equipment !== "bodyweight";
+const kgLabel = (kg) => (kg == null ? "—" : `${String(kg).replace(".", ",")} kg`);
+state.targets = {}; // dayId → targets (caché de la sesión)
+async function loadTargets(day) {
+  try {
+    const last = await api.lastLogs(day.id);
+    state.targets[day.id] = targetsFor(day.exercises, last);
+  } catch (_) {
+    state.targets[day.id] ||= targetsFor(day.exercises, {});
+  }
+  return state.targets[day.id];
+}
+const ACTION = {
+  up: (t) => `<span class="badge up">↑ sube de ${kgLabel(t.from)}</span>`,
+  down: (t) => `<span class="badge down">↓ baja de ${kgLabel(t.from)}</span>`,
+  hold: () => `<span class="badge">= mantén</span>`,
+  start: () => `<span class="badge">elige peso</span>`,
+};
+function hoyTocaHTML(day, targets) {
+  const exs = [...mainExercises(day), ...remateExercises(day)];
+  const w = exs.filter(weighted);
+  const bw = exs.filter((e) => !weighted(e));
+  if (!targets) return `<div class="muted small">Calculando…</div>`;
+  return `
+    ${w
+      .map((e) => {
+        const t = targets[e.id] || {};
+        return `<div class="hoy-row" style="--day: var(--d${day.id})">
+          <div class="hoy-name"><strong>${esc(e.name)}</strong>
+            <span class="muted small">${t.rep_min ? `${t.rep_min}–${t.rep_max} reps` : "sin rango de reps"}${
+          t.last ? ` · última: ${kgLabel(t.last.kg)}${t.last.reps.length ? " × " + t.last.reps.join("/") : ""}` : ""
+        }</span></div>
+          <div class="hoy-kg"><b>${t.kg == null ? "—" : kgLabel(t.kg)}</b>
+            <span class="muted small">${t.kg == null ? "apúntalo hoy" : UNIT[e.equipment] || ""}</span>
+            ${t.plates ? `<span class="small hoy-plates">${t.plates}</span>` : ""}
+            ${(ACTION[t.action] || ACTION.hold)(t)}</div>
+        </div>`;
+      })
+      .join("")}
+    ${bw.length ? `<div class="muted small">Peso corporal: ${bw.map((e) => esc(e.name)).join(" · ")}</div>` : ""}`;
+}
+
 // ------------------------------- setup ---------------------------------
 function viewSetup(dayId) {
   const day = dayById(dayId);
@@ -344,6 +390,11 @@ function viewSetup(dayId) {
     });
   };
 
+  const targetsReady = loadTargets(day);
+  targetsReady.then((t) => {
+    const box = document.getElementById("hoy");
+    if (box && location.hash === `#/setup/${day.id}`) box.innerHTML = hoyTocaHTML(day, t);
+  });
   const draw = () => {
     const shown = deload ? day.rounds_deload : rounds;
     h(`
@@ -358,6 +409,10 @@ function viewSetup(dayId) {
             <button id="plus" class="glass" aria-label="Más rondas" ${deload ? "disabled" : ""}>${ICON.plus}</button>
           </div>
           ${switchRow(`Semana de deload (${day.rounds_deload} rondas)`, `id="deload" ${deload ? "checked" : ""}`)}
+        </div>
+        <div class="card col gap hoy">
+          <div class="row between"><strong>Hoy toca</strong><span class="muted small">peso de discos</span></div>
+          <div id="hoy">${hoyTocaHTML(day, state.targets[day.id])}</div>
         </div>
         <div class="card col gap ap">
           <label class="switch-row">
@@ -387,13 +442,15 @@ function viewSetup(dayId) {
     document.querySelectorAll(".ap-list .switch").forEach((el) => {
       el.onchange = () => setAutopause([+el.dataset.ex], el.checked);
     });
-    document.getElementById("go").onclick = () => {
+    document.getElementById("go").onclick = async () => {
+      await Promise.race([targetsReady, new Promise((r) => setTimeout(r, 1500))]); // sin red no bloquea
       state.run = {
         day,
         rounds: deload ? day.rounds_deload : rounds,
         isDeload: deload,
         date: todayISO(),
         source: "timer",
+        targets: state.targets[day.id] || null,
       };
       location.hash = "#/run";
     };
@@ -412,6 +469,21 @@ const replay = (el, cls) => {
   el.classList.add(cls);
 };
 
+/** Añade a cada paso el "hoy toca" de su ejercicio, y a cada paso el del
+ *  siguiente ejercicio (para el descanso y la voz: "…, 8 kilos"). */
+function annotate(steps, targets) {
+  if (!targets) return steps;
+  for (const st of steps) st.target = st.exerciseId != null ? targets[st.exerciseId] || null : null;
+  for (let i = 0; i < steps.length; i++) {
+    const nxt = steps.slice(i + 1).find((x) => x.kind === "work" || x.kind === "warmup");
+    const t = nxt?.target;
+    steps[i].nextTarget = t && t.kg != null && t.equipment !== "bodyweight" ? t : null;
+    steps[i].nextKg = steps[i].nextTarget?.kg ?? null;
+  }
+  return steps;
+}
+const tgtText = (t) => (t && t.kg != null ? `${kgLabel(t.kg)} ${UNIT[t.equipment] || ""}${t.plates ? " · " + t.plates : ""}` : "");
+
 function viewRun() {
   const r = state.run;
   if (!r) return (location.hash = "#/");
@@ -419,13 +491,13 @@ function viewRun() {
   let totalDuration = 0;
   let muted = readMuted(storage());
 
-  const steps = buildSteps(day, warmupExercises(), { rounds: r.rounds, remates: [] });
+  const steps = annotate(buildSteps(day, warmupExercises(), { rounds: r.rounds, remates: [] }), r.targets);
 
   h(`
     <div class="pane run" id="runpane">
       <div class="run-top">
         <span id="phase" class="phase">Preparado</span>
-        <span id="round" class="round"></span>
+        <span id="round" class="rnd"></span>
         <button id="mute" class="mute glass" type="button" aria-label="Silenciar sonido y voz" aria-pressed="false"></button>
       </div>
       <div id="dial" class="dial">
@@ -440,6 +512,7 @@ function viewRun() {
       </div>
       <div id="exname" class="exname"></div>
       <div id="exmus" class="muted"></div>
+      <div id="extgt" class="tgt" hidden></div>
       <div id="exinfo" class="instructions"></div>
       <div id="next" class="next"></div>
       <div class="bar"><div id="fill" class="fill"></div></div>
@@ -497,6 +570,10 @@ function viewRun() {
         : "";
     $("exname").textContent = step.name;
     $("exmus").textContent = step.muscle || step.note || "";
+    // Peso del ejercicio en curso; en el descanso, el del siguiente ("prepara").
+    const tg = step.kind === "work" ? tgtText(step.target) : step.kind === "rest" && step.nextTarget ? "Prepara " + tgtText(step.nextTarget) : "";
+    $("extgt").textContent = tg;
+    $("extgt").hidden = !tg;
     $("exinfo").textContent = (step.kind === "rest" ? step.nextInstructions : step.instructions) || "";
     $("next").textContent = "Siguiente: " + step.nextName + (step.nextAutopause ? " · se parará" : "");
     lastSec = null;
@@ -576,7 +653,7 @@ function viewRun() {
       const chosen = [...ov.querySelectorAll("input:checked")].map((c) => +c.value);
       const exs = rem.filter((e) => chosen.includes(e.id));
       if (!exs.length) return finish([]);
-      const rSteps = buildSteps(day, [], { rounds: 0, remates: exs });
+      const rSteps = annotate(buildSteps(day, [], { rounds: 0, remates: exs }), r.targets);
       ov.classList.remove("show");
       ov.innerHTML = "";
       state.engine = makeEngine(rSteps, () => {
@@ -668,19 +745,68 @@ function confetti(colors) {
 
 /** Stepper de reps (referencia 21st.dev: Quantity Stepper): −/+ con pulsación
  *  mantenida que acelera; el número también se puede escribir. */
-const repStepper = (e, value, last) => `
-  <div class="card rep-card" style="--day: var(--d${e.day_id || 5})">
+const repStep = (name, round, value) => `
+    <div class="rep-step">
+      <button type="button" class="glass round" data-step="-1" aria-label="Una rep menos, ${esc(name)} ronda ${round}">${ICON.minus}</button>
+      <input class="reps" type="number" inputmode="numeric" min="0" max="999"
+             value="${value ?? ""}" placeholder="—" aria-label="Reps de ${esc(name)}, ronda ${round}" />
+      <button type="button" class="glass round" data-step="1" aria-label="Una rep más, ${esc(name)} ronda ${round}">${ICON.plus}</button>
+    </div>`;
+
+/** Selector de kg: solo los pesos que se pueden montar con los discos. */
+const kgSelect = (e, round, kg) => {
+  const opts = loadOptions(e.equipment);
+  // Un kg antiguo que ya no se puede montar no se pierde: se ofrece igualmente.
+  if (kg != null && !opts.includes(kg)) opts.push(kg), opts.sort((a, b) => a - b);
+  return `<select class="kg" aria-label="Kg de ${esc(e.name)}, ronda ${round}">
+    <option value="" ${kg == null ? "selected" : ""}>— kg</option>
+    ${opts.map((v) => `<option value="${v}" ${kg === v ? "selected" : ""}>${kgLabel(v)}</option>`).join("")}
+  </select>`;
+};
+
+/** Tarjeta de un ejercicio en el registro: una fila por ronda (kg + reps). */
+const exerciseLog = (e, dayId, rounds, target, last) => {
+  const w = weighted(e);
+  const kg0 = target?.kg ?? last?.kg ?? null;
+  const lastReps = (k) => last?.rounds?.find((x) => x.round === k)?.reps ?? null;
+  const rows = Array.from({ length: rounds }, (_, i) => i + 1)
+    .map(
+      (k) => `<div class="round-row" data-round="${k}">
+        <span class="rn">R${k}</span>
+        ${repStep(e.name, k, lastReps(k))}
+        ${w ? kgSelect(e, k, kg0) : ""}
+      </div>`
+    )
+    .join("");
+  const tags = [
+    target?.rep_min ? `objetivo ${target.rep_min}–${target.rep_max}` : "",
+    last ? `última vez: ${w ? kgLabel(last.kg) + " × " : ""}${last.rounds.map((x) => x.reps ?? "—").join("/")}` : "",
+  ].filter(Boolean);
+  return `<div class="card rep-card" style="--day: var(--d${dayId})" data-ex="${e.id}" data-eq="${e.equipment || ""}">
     <div class="rep-info">
       <strong>${esc(e.name)}</strong>
-      <span class="muted small">${esc(e.muscle_primary || "")}${last != null ? ` · última vez: <b>${last}</b>` : ""}</span>
+      <span class="muted small">${tags.join(" · ") || esc(e.muscle_primary || "")}</span>
+      ${w ? `<span class="small plates" aria-live="polite">${kg0 != null ? platesText(kg0, e.equipment) : ""}</span>` : ""}
     </div>
-    <div class="rep-step">
-      <button type="button" class="glass round" data-step="-1" aria-label="Una rep menos de ${esc(e.name)}">${ICON.minus}</button>
-      <input class="reps" data-ex="${e.id}" type="number" inputmode="numeric" min="0" max="999"
-             value="${value ?? ""}" placeholder="—" aria-label="Reps de ${esc(e.name)}" />
-      <button type="button" class="glass round" data-step="1" aria-label="Una rep más de ${esc(e.name)}">${ICON.plus}</button>
-    </div>
+    <div class="rounds">${rows}</div>
   </div>`;
+};
+
+/** kg: al cambiar una ronda, las siguientes que tenían el mismo valor lo copian. */
+function bindKg(root) {
+  root.querySelectorAll(".rep-card").forEach((card) => {
+    const sels = [...card.querySelectorAll("select.kg")];
+    let prev = sels.map((x) => x.value);
+    sels.forEach((sel, i) => {
+      sel.onchange = () => {
+        for (let j = i + 1; j < sels.length; j++) if (sels[j].value === prev[i]) sels[j].value = sel.value;
+        prev = sels.map((x) => x.value);
+        const p = card.querySelector(".plates");
+        if (p && i === 0) p.textContent = sel.value === "" ? "" : platesText(+sel.value, card.dataset.eq);
+      };
+    });
+  });
+}
 
 function bindSteppers(root) {
   root.querySelectorAll(".rep-step").forEach((box) => {
@@ -737,8 +863,9 @@ async function viewLog() {
   if (!r) return (location.hash = "#/");
   const { day } = r;
   const list = [...mainExercises(day), ...(r.doneRemates || [])];
-  let prefill = {};
-  try { prefill = await api.prefill(day.id); } catch (_) {}
+  let last = {};
+  try { last = await api.lastLogs(day.id); } catch (_) {}
+  const targets = r.targets || targetsFor(day.exercises, last);
   const fromTimer = r.source === "timer";
   const week = weekProgress(
     [{ date: r.date, day_id: day.id }, ...api.pendingSessions(), ...(readRecent() || [])],
@@ -764,28 +891,49 @@ async function viewLog() {
       </section>`
           : `<div class="muted small">${fmtDayLong(r.date)} · ${r.rounds} rondas${r.isDeload ? " · deload" : ""}</div>`
       }
-      <h3 class="section-title">Apunta tus reps <span class="muted">· ronda 1</span></h3>
+      <h3 class="section-title">Apunta kg y reps <span class="muted">· por ronda</span></h3>
       <div class="col gap">
         ${
           list.length
-            ? list.map((e) => repStepper({ ...e, day_id: day.id }, prefill[e.id], prefill[e.id])).join("")
+            ? list
+                .map((e) =>
+                  exerciseLog(
+                    e,
+                    day.id,
+                    e.block === "remate" ? e.rounds || 1 : r.roundsCompleted ?? r.rounds,
+                    targets[e.id],
+                    (last[e.id] || last[String(e.id)] || [])[0]
+                  )
+                )
+                .join("")
             : `<div class="muted">Sin ejercicios en este día.</div>`
         }
       </div>
       <button class="primary big-btn mt" id="save">Guardar sesión</button>
-      <button class="ghost small" id="skip">Guardar sin apuntar reps</button>
+      <button class="ghost small" id="skip">Guardar sin apuntar nada</button>
     </div>`);
   bindSteppers(app);
+  bindKg(app);
   if (fromTimer) confetti([cssVar(`--d${day.id}`), cssVar("--c-work"), cssVar("--c-rest"), cssVar("--c-warm"), "#ffffff"]);
 
   const save = async (withReps) => {
     // Evita un doble toque que enviaría (o encolaría) la sesión dos veces.
     for (const id of ["save", "skip"]) document.getElementById(id).disabled = true;
-    const logs = withReps
-      ? [...document.querySelectorAll(".reps")]
-          .filter((i) => i.value !== "")
-          .map((i) => ({ exercise_id: +i.dataset.ex, reps: +i.value, round_number: 1 }))
-      : [];
+    const logs = [];
+    if (withReps)
+      for (const card of document.querySelectorAll(".rep-card")) {
+        for (const row of card.querySelectorAll(".round-row")) {
+          const reps = row.querySelector("input.reps").value;
+          const kg = row.querySelector("select.kg")?.value ?? "";
+          if (reps === "" && kg === "") continue; // nada apuntado en esta ronda
+          logs.push({
+            exercise_id: +card.dataset.ex,
+            round_number: +row.dataset.round,
+            reps: reps === "" ? null : Math.min(999, Math.max(0, Math.round(+reps))),
+            weight_kg: kg === "" ? null : +kg,
+          });
+        }
+      }
     const res = await api.saveWorkout({
       session: {
         day_id: day.id,
@@ -799,6 +947,11 @@ async function viewLog() {
       logs,
     });
     state.run = null;
+    delete state.targets[day.id]; // el próximo "hoy toca" ya cuenta esta sesión
+    if (!res.ok) {
+      for (const id of ["save", "skip"]) document.getElementById(id).disabled = false;
+      return toast("No se pudo guardar: revisa los datos");
+    }
     toast(res.queued ? "Guardado local — se subirá al reconectar" : "Sesión guardada");
     location.hash = "#/";
   };

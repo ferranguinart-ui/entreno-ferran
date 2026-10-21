@@ -15,7 +15,11 @@ async function req(method, url, body) {
     location.hash = "#/login";
     throw new Error("no auth");
   }
-  if (!res.ok) throw new Error((await res.text()) || res.statusText);
+  if (!res.ok) {
+    const err = new Error((await res.text()) || res.statusText);
+    err.status = res.status;
+    throw err;
+  }
   return res.status === 204 ? null : res.json();
 }
 
@@ -33,6 +37,9 @@ const writeQ = (k, v) => {
 };
 const enqueue = (k, item) => writeQ(k, [...readQ(k), { ...item, ts: Date.now() }]);
 
+// 4xx distinto de 401 = el servidor rechaza los datos: reintentar no sirve.
+const isRejected = (e) => e?.status >= 400 && e.status < 500 && e.status !== 401;
+
 // Intentos "crudos" (lanzan si fallan, no encolan).
 async function pushWorkout(payload) {
   const { id } = await req("POST", "/api/sessions", payload.session);
@@ -49,6 +56,7 @@ export const api = {
   me: () => req("GET", "/api/me"),
   bootstrap: () => req("GET", "/api/bootstrap"),
   prefill: (dayId) => req("GET", `/api/prefill?day_id=${dayId}`),
+  lastLogs: (dayId) => req("GET", `/api/last_logs?day_id=${dayId}`),
   sessions: (limit = 30) => req("GET", `/api/sessions?limit=${limit}`),
   measurements: () => req("GET", "/api/measurements"),
   dashboard: () => req("GET", "/api/dashboard"),
@@ -60,6 +68,7 @@ export const api = {
       return { ok: true, queued: false, id };
     } catch (e) {
       if (e.message === "no auth") throw e;
+      if (isRejected(e)) return { ok: false, queued: false }; // datos inválidos: reintentar no sirve
       enqueue(PENDING_S, payload);
       return { ok: true, queued: true };
     }
@@ -95,8 +104,8 @@ export const api = {
       for (const item of q) {
         try {
           await push(item);
-        } catch (_) {
-          keep.push(item);
+        } catch (e) {
+          if (!isRejected(e)) keep.push(item); // 4xx (salvo 401): se descarta, no se reintenta
         }
       }
       writeQ(k, keep);

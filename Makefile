@@ -13,7 +13,7 @@ dev:
 	cd $(BACKEND) && $(CURDIR)/$(VENV)/bin/uvicorn app:app --reload --port 8000
 
 test:
-	node --test frontend/js/timer.test.mjs frontend/js/fx.test.mjs frontend/js/stats.test.mjs frontend/js/dash.test.mjs
+	node --test frontend/js/timer.test.mjs frontend/js/fx.test.mjs frontend/js/stats.test.mjs frontend/js/dash.test.mjs frontend/js/plates.test.mjs
 	cd $(BACKEND) && DATABASE_URL="$(DB)" $(CURDIR)/$(VENV)/bin/pytest
 
 # Recrea la BD local desde cero (solo local: la URL apunta a localhost).

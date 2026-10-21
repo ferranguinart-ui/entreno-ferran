@@ -162,3 +162,70 @@ def test_static_files_are_revalidated(client):
         assert r.status_code == 200, path
         assert r.headers.get("cache-control") == "no-cache", path
     assert "no-cache" not in (client.get("/api/me").headers.get("cache-control") or "")
+
+
+# ------------------------------ kg por ronda ------------------------------
+def test_exercises_have_equipment_and_rep_ranges(auth_client):
+    exs = _exercises(auth_client)
+    assert (exs[10]["equipment"], exs[10]["rep_min"], exs[10]["rep_max"]) == ("pair", 10, 14)
+    assert (exs[11]["equipment"], exs[11]["rep_min"], exs[11]["rep_max"]) == ("pair", 12, 16)
+    assert exs[30]["equipment"] == "single"
+    assert exs[31]["equipment"] == "bar"
+    assert exs[20]["equipment"] == "bodyweight" and exs[20]["rep_min"] is None
+    assert all(e["equipment"] for e in exs.values()), "todos con material"
+
+
+def test_equipment_not_overwritten_by_seed(auth_client):
+    db_url = os.environ["DATABASE_URL"]
+    _psql(db_url, "-c", "update exercises set equipment = 'bar', rep_min = 8 where id = 12;")
+    _psql(db_url, "-f", str(ROOT / "db" / "schema.sql"))
+    _psql(db_url, "-f", str(ROOT / "db" / "seed.sql"))
+    e = _exercises(auth_client)[12]
+    assert (e["equipment"], e["rep_min"]) == ("bar", 8)
+    _psql(db_url, "-c", "update exercises set equipment = 'pair', rep_min = 10 where id = 12;")
+
+
+def _new_session(c, date, day=1, deload=False):
+    return c.post(
+        "/api/sessions",
+        json={"day_id": day, "date": date, "rounds_planned": 3, "is_deload": deload, "source": "timer", "work_sec": 40},
+    ).json()["id"]
+
+
+def test_logs_store_kg_per_round_and_last_logs(auth_client):
+    c = auth_client
+    s1 = _new_session(c, "2026-09-01")
+    c.post(f"/api/sessions/{s1}/logs", json={"logs": [
+        {"exercise_id": 12, "round_number": 1, "reps": 12, "weight_kg": 7.5},
+        {"exercise_id": 12, "round_number": 2, "reps": 11, "weight_kg": 7.5},
+    ]})
+    s2 = _new_session(c, "2026-09-05", deload=True)
+    c.post(f"/api/sessions/{s2}/logs", json={"logs": [
+        {"exercise_id": 12, "round_number": 1, "reps": 14, "weight_kg": 8},
+        {"exercise_id": 12, "round_number": 2, "reps": 13, "weight_kg": 8},
+        {"exercise_id": 12, "round_number": 3, "reps": None, "weight_kg": 8},
+    ]})
+    h = c.get("/api/last_logs?day_id=1").json()["12"]
+    assert [x["date"] for x in h][:2] == ["2026-09-05", "2026-09-01"], "más reciente primero"
+    assert h[0] == {"date": "2026-09-05", "deload": True, "kg": 8.0, "rounds": [
+        {"round": 1, "reps": 14, "kg": 8.0},
+        {"round": 2, "reps": 13, "kg": 8.0},
+        {"round": 3, "reps": None, "kg": 8.0},
+    ]}
+    assert h[1]["kg"] == 7.5
+
+
+def test_logs_reject_absurd_kg(auth_client):
+    c = auth_client
+    sid = _new_session(c, "2026-09-02")
+    for bad in (-1, 61):
+        r = c.post(f"/api/sessions/{sid}/logs", json={"logs": [{"exercise_id": 12, "round_number": 1, "reps": 10, "weight_kg": bad}]})
+        assert r.status_code == 422, bad
+
+
+def test_dashboard_strength_includes_kg(auth_client):
+    c = auth_client
+    sid = _new_session(c, "2026-09-03")
+    c.post(f"/api/sessions/{sid}/logs", json={"logs": [{"exercise_id": 13, "round_number": 1, "reps": 12, "weight_kg": 6.5}]})
+    rows = c.get("/api/dashboard").json()["strength"]
+    assert any(r["exercise_id"] == 13 and r.get("weight_kg") == 6.5 for r in rows)

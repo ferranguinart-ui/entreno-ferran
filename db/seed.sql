@@ -107,3 +107,34 @@ from (values
   (44, 'Apoya antebrazos y puntas de los pies, con los codos justo debajo de los hombros. Mantén el cuerpo en línea recta apretando abdomen y glúteos. No hundas la cadera, no la subas y no aguantes la respiración.')
 ) as v(id, t)
 where e.id = v.id;
+
+-- ------------------------- material y rangos de reps -------------------------
+-- Solo donde aún está vacío (where equipment is null): una vez rellenado es una
+-- preferencia de Ferran y re-aplicar el seed en cada deploy no lo pisa.
+update exercises e set equipment = v.eq, rep_min = v.mn, rep_max = v.mx
+from (values
+  (10, 'pair',       10, 14), -- Press de pecho en suelo
+  (11, 'pair',       12, 16), -- Aperturas en suelo
+  (12, 'pair',       10, 14), -- Press militar
+  (13, 'bar',        12, 16), -- Rompe cráneos en suelo
+  (14, 'bodyweight', null, null), -- Flexiones
+  (20, 'bodyweight', null, null), -- Sentadillas
+  (21, 'bodyweight', null, null), -- Wall sit (isométrico)
+  (22, 'single',     12, 16), -- Crunch con peso al pecho
+  (23, 'bodyweight', null, null), -- Lumbares
+  (24, 'bodyweight', null, null), -- Plancha estática
+  (30, 'single',     10, 14), -- Remo a una mano
+  (31, 'bar',        10, 14), -- Peso muerto rumano
+  (32, 'bar',        12, 16), -- Curl bíceps
+  (33, 'pair',       12, 16), -- Curl martillo / concentrado
+  (34, 'single',     null, null), -- Curl isométrico a 90° (tiempo, sin reps)
+  (40, 'bodyweight', null, null), -- Sentadillas
+  (41, 'bodyweight', null, null), -- Zancadas alternas
+  (42, 'bodyweight', null, null), -- Puente de glúteo
+  (43, 'single',     12, 16), -- Crunch con peso al pecho
+  (44, 'bodyweight', null, null)  -- Plancha estática
+) as v(id, eq, mn, mx)
+where e.id = v.id and e.equipment is null;
+
+-- Calentamiento: sin peso.
+update exercises set equipment = 'bodyweight' where day_id = 0 and equipment is null;

@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.staticfiles import StaticFiles
 from itsdangerous import BadSignature, URLSafeSerializer
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import db
 
@@ -115,8 +115,9 @@ class SessionPatch(BaseModel):
 
 class LogItem(BaseModel):
     exercise_id: int
-    reps: Optional[int] = None
-    round_number: int = 1
+    reps: Optional[int] = Field(None, ge=0, le=999)
+    round_number: int = Field(1, ge=1, le=20)
+    weight_kg: Optional[float] = Field(None, ge=0, le=60)  # kg de discos
 
 
 class LogsIn(BaseModel):
@@ -201,6 +202,48 @@ async def prefill(day_id: int, user: str = Depends(current_user)):
     return {str(r["exercise_id"]): r["reps"] for r in rows}
 
 
+@app.get("/api/last_logs")
+async def last_logs(day_id: int, limit: int = 6, user: str = Depends(current_user)):
+    """Historial por ejercicio del día: últimas `limit` sesiones con algo apuntado,
+    de más reciente a más antigua, con kg y reps de cada ronda."""
+    rows = await db.fetch(
+        """
+        with ses as (
+          select s.id, s.date, s.is_deload, s.created_at, sl.exercise_id,
+                 dense_rank() over (partition by sl.exercise_id
+                                    order by s.date desc, s.created_at desc) as rk
+          from sessions s
+          join session_logs sl on sl.session_id = s.id
+          join exercises e on e.id = sl.exercise_id
+          where s.user_id = %s and e.day_id = %s
+            and (sl.reps is not null or sl.weight_kg is not null)
+          group by s.id, s.date, s.is_deload, s.created_at, sl.exercise_id
+        )
+        select ses.exercise_id, ses.date, ses.is_deload, ses.rk,
+               sl.round_number, sl.reps, sl.weight_kg
+        from ses
+        join session_logs sl on sl.session_id = ses.id and sl.exercise_id = ses.exercise_id
+        where ses.rk <= %s
+        order by ses.exercise_id, ses.rk, sl.round_number
+        """,
+        user, day_id, limit,
+    )
+    out: dict[str, list] = {}
+    for r in rows:
+        hist = out.setdefault(str(r["exercise_id"]), [])
+        if not hist or hist[-1]["_rk"] != r["rk"]:
+            hist.append({"_rk": r["rk"], "date": str(r["date"]), "deload": r["is_deload"], "kg": None, "rounds": []})
+        kg = float(r["weight_kg"]) if r["weight_kg"] is not None else None
+        h = hist[-1]
+        h["rounds"].append({"round": r["round_number"], "reps": r["reps"], "kg": kg})
+        if h["kg"] is None and kg is not None:
+            h["kg"] = kg  # peso de la sesión = el de la primera ronda con peso
+    for hist in out.values():
+        for h in hist:
+            h.pop("_rk")
+    return out
+
+
 @app.post("/api/sessions")
 async def create_session(body: SessionIn, user: str = Depends(current_user)):
     row = await db.fetchrow(
@@ -239,12 +282,12 @@ async def put_logs(sid: str, body: LogsIn, user: str = Depends(current_user)):
         for it in body.logs:
             await c.execute(
                 """
-                insert into session_logs (session_id, exercise_id, round_number, reps)
-                values (%s, %s, %s, %s)
+                insert into session_logs (session_id, exercise_id, round_number, reps, weight_kg)
+                values (%s, %s, %s, %s, %s)
                 on conflict (session_id, exercise_id, round_number)
-                do update set reps = excluded.reps
+                do update set reps = excluded.reps, weight_kg = excluded.weight_kg
                 """,
-                (sid, it.exercise_id, it.round_number, it.reps),
+                (sid, it.exercise_id, it.round_number, it.reps, it.weight_kg),
             )
     return {"ok": True}
 
@@ -325,7 +368,7 @@ async def dashboard(user: str = Depends(current_user)):
     strength = await db.fetch(
         """
         select s.date, s.day_id, s.is_deload, s.work_sec,
-               sl.exercise_id, e.name as exercise_name, sl.reps
+               sl.exercise_id, e.name as exercise_name, sl.reps, sl.weight_kg
         from session_logs sl
         join sessions s on s.id = sl.session_id
         join exercises e on e.id = sl.exercise_id
