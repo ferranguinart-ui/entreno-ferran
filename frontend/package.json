@@ -4,6 +4,6 @@
   "type": "module",
   "description": "Frontend vanilla, sin build. package.json solo para que Node trate los .js como ES modules al testear.",
   "scripts": {
-    "test": "node --test js/timer.test.mjs js/fx.test.mjs js/stats.test.mjs js/dash.test.mjs js/plates.test.mjs"
+    "test": "node --test js/timer.test.mjs js/fx.test.mjs js/stats.test.mjs js/dash.test.mjs js/plates.test.mjs js/muscles.test.mjs"
   }
 }

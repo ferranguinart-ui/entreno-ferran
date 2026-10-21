@@ -473,7 +473,12 @@ th { color: var(--muted); font-weight: 500; }
   font-size: 15px;
   line-height: 1.35;
   color: #cfd6e2;
-  min-height: 5.4em; /* reserva ~4 líneas: el layout no salta entre pasos */
+  min-height: 4.05em; /* 3 líneas fijas: el layout no salta entre pasos */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  cursor: pointer;
   margin-top: 8px;
   text-wrap: pretty;
 }
@@ -694,8 +699,42 @@ select.kg {
 .badge.up { color: var(--fg); border-color: var(--c-work); background: color-mix(in srgb, var(--c-work) 18%, transparent); }
 .badge.down { color: var(--fg); border-color: var(--c-warm); background: color-mix(in srgb, var(--c-warm) 18%, transparent); }
 
+/* Mapa muscular (js/muscles.js): zonas neutras en cristal, la principal con
+   el color de la fase/día y la secundaria a medio tono. Sin filter (WebKit). */
+.bodymap { display: block; width: 100%; height: auto; }
+.bodymap .nb { fill: #ffffff1c; }
+.bodymap .mz { fill: #ffffff12; stroke: var(--bg); stroke-width: 0.8; transition: fill var(--dur) var(--ease-out); }
+.bodymap .mz.sec { fill: color-mix(in srgb, var(--phase) 38%, #ffffff12); }
+.bodymap .mz.on { fill: var(--phase); }
+.bodymap .mline { fill: none; stroke: var(--bg); stroke-width: 0.8; opacity: 0.7; }
+.bodymap .mlbl { fill: var(--muted); font-size: 8px; font-weight: 600; letter-spacing: 0.5px; }
+.lg-sq.sec { background: color-mix(in srgb, var(--phase) 38%, #ffffff12); }
+
+/* Fila del runner: mini mapa + músculos + peso. */
+.run .exmeta { display: flex; align-items: center; justify-content: center; gap: 12px; }
+.mapbtn {
+  flex: none;
+  width: 66px;
+  height: 112px;
+  padding: 2px;
+  border-radius: 14px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+}
+.mapbtn[hidden] { display: none; }
+.mapbtn .mlbl { display: none; } /* en pequeño sobran las etiquetas */
+.mapbtn .bodymap { height: 100%; }
+.exmeta-txt { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; min-width: 0; }
+.exmeta-txt:only-child, .mapbtn[hidden] + .exmeta-txt { align-items: center; text-align: center; }
+.map-big { max-width: 420px; width: 100%; margin: 0 auto; }
+.map-info { font-size: 15px; line-height: 1.4; }
+
 /* Peso en el runner: chip bajo el músculo. */
+.tgt b { display: block; font-weight: 800; }
+.tgt span { display: block; font-size: 12px; font-weight: 600; opacity: 0.85; }
 .tgt {
+  border-radius: 12px !important;
+  text-align: left;
   display: inline-block;
   justify-self: center;
   margin: 2px auto 0;
@@ -924,13 +963,12 @@ dialog.sheet::backdrop { background: #000a; -webkit-backdrop-filter: blur(6px); 
       "top    top"
       "digits name"
       "digits mus"
-      "digits tgt"
       "digits info"
       "digits next"
       "digits ctrl"
       "bar    bar"
       "exit   exit";
-    grid-template-rows: auto auto auto auto auto auto auto auto auto;
+    grid-template-rows: auto auto auto auto auto auto auto auto;
     align-content: center;
     justify-items: stretch;
     column-gap: 48px;
@@ -942,17 +980,18 @@ dialog.sheet::backdrop { background: #000a; -webkit-backdrop-filter: blur(6px); 
   .run .run-top  { grid-area: top; }
   .run .dial     { grid-area: digits; align-self: center; justify-self: center; margin: 0; }
   .run .exname   { grid-area: name; text-align: left; font-size: clamp(24px, 3vw, 40px); }
-  .run #exmus    { grid-area: mus; text-align: left; }
-  .run #extgt    { grid-area: tgt; justify-self: start; margin: 0; }
-  .run .instructions { grid-area: info; text-align: left; font-size: clamp(15px, 1.4vw, 19px); min-height: 4.2em; margin: 0; }
+  .run .exmeta   { grid-area: mus; justify-content: flex-start; }
+  .run #extgt    { margin: 0; }
+  .run .instructions { grid-area: info; text-align: left; font-size: clamp(15px, 1.4vw, 19px); min-height: 4.2em; margin: 0; -webkit-line-clamp: 6; }
   .run .next     { grid-area: next; text-align: left; margin: 0; }
   .run .run-controls { grid-area: ctrl; margin-top: 8px; }
   .run .bar      { grid-area: bar; margin: 10px 0 0; }
   .run #exit     { grid-area: exit; justify-self: center; width: auto; }
 }
 @media (orientation: landscape) and (max-height: 520px) {
-  .pane.run { --dh: 34dvh; padding-top: 10px; padding-bottom: 12px; row-gap: 4px; column-gap: 24px; }
-  .run .instructions { font-size: 13px; line-height: 1.25; min-height: 0; }
+  .pane.run { --dh: 34dvh; padding-top: 8px; padding-bottom: 8px; row-gap: 3px; column-gap: 24px; }
+  .run .instructions { font-size: 13px; line-height: 1.25; min-height: 0; -webkit-line-clamp: 3; }
+  .run .mapbtn { width: 46px; height: 78px; }
   .run .run-controls button { padding: 10px 0; }
   .run .exname { font-size: 22px; }
 }

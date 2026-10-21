@@ -2,6 +2,7 @@ import { api } from "./api.js";
 import { buildSteps, TimerEngine, primaryLabel, readMuted, writeMuted, autopauseState } from "./timer.js";
 import { dialText, ringFraction, changedIndices, beatAt } from "./fx.js";
 import { loadOptions, platesText, targetsFor } from "./plates.js";
+import { musclesFor, bodyMapSVG, bestView } from "./muscles.js";
 import { weekProgress, nextDayId, mondayISO, stepValue, holdInterval, groupByWeek } from "./stats.js";
 import {
   withAvg,
@@ -16,7 +17,7 @@ import {
 } from "./dash.js";
 
 const app = document.getElementById("app");
-const APP_VERSION = "15"; // = número de la caché en sw.js; se muestra en el inicio
+const APP_VERSION = "16"; // = número de la caché en sw.js; se muestra en el inicio
 const state = { boot: null, run: null, engine: null };
 
 const todayISO = () => new Date().toLocaleDateString("sv-SE"); // YYYY-MM-DD local
@@ -472,10 +473,12 @@ const replay = (el, cls) => {
 /** Añade a cada paso el "hoy toca" de su ejercicio, y a cada paso el del
  *  siguiente ejercicio (para el descanso y la voz: "…, 8 kilos"). */
 function annotate(steps, targets) {
-  if (!targets) return steps;
-  for (const st of steps) st.target = st.exerciseId != null ? targets[st.exerciseId] || null : null;
+  for (const st of steps) st.target = targets && st.exerciseId != null ? targets[st.exerciseId] || null : null;
   for (let i = 0; i < steps.length; i++) {
     const nxt = steps.slice(i + 1).find((x) => x.kind === "work" || x.kind === "warmup");
+    // El descanso enseña los músculos del ejercicio que viene.
+    steps[i].nextMuscle = nxt?.muscle ?? null;
+    steps[i].nextMuscle2 = nxt?.muscle2 ?? null;
     const t = nxt?.target;
     steps[i].nextTarget = t && t.kg != null && t.equipment !== "bodyweight" ? t : null;
     steps[i].nextKg = steps[i].nextTarget?.kg ?? null;
@@ -483,6 +486,9 @@ function annotate(steps, targets) {
   return steps;
 }
 const tgtText = (t) => (t && t.kg != null ? `${kgLabel(t.kg)} ${UNIT[t.equipment] || ""}${t.plates ? " · " + t.plates : ""}` : "");
+// Chip del runner en dos líneas: kg en negrita, discos debajo (solo números y constantes).
+const tgtHTML = (t, prefix = "") =>
+  t && t.kg != null ? `<b>${prefix}${kgLabel(t.kg)} ${UNIT[t.equipment] || ""}</b>${t.plates ? `<span>${t.plates}</span>` : ""}` : "";
 
 function viewRun() {
   const r = state.run;
@@ -511,9 +517,14 @@ function viewRun() {
         <div id="digits" class="digits" role="timer"></div>
       </div>
       <div id="exname" class="exname"></div>
-      <div id="exmus" class="muted"></div>
-      <div id="extgt" class="tgt" hidden></div>
-      <div id="exinfo" class="instructions"></div>
+      <div class="exmeta">
+        <button type="button" id="mapbtn" class="mapbtn" aria-label="Ver los músculos en grande"></button>
+        <div class="exmeta-txt">
+          <div id="exmus" class="muted"></div>
+          <div id="extgt" class="tgt" hidden></div>
+        </div>
+      </div>
+      <div id="exinfo" class="instructions" role="button" tabindex="0" title="Toca para verlo entero"></div>
       <div id="next" class="next"></div>
       <div class="bar"><div id="fill" class="fill"></div></div>
       <div class="run-controls">
@@ -523,6 +534,16 @@ function viewRun() {
       </div>
       <button class="ghost small" id="exit">Salir sin guardar</button>
       <div id="overlay" class="overlay"></div>
+      <dialog id="mapzoom" class="sheet" aria-labelledby="mapTitle">
+        <div class="sheet-grip" aria-hidden="true"></div>
+        <header class="sheet-head">
+          <h3 id="mapTitle"></h3>
+          <button class="glass round" id="mapClose" aria-label="Cerrar">${ICON.close}</button>
+        </header>
+        <div id="mapBig" class="map-big"></div>
+        <div id="mapLegend" class="legend small"></div>
+        <p id="mapInfo" class="muted map-info"></p>
+      </dialog>
     </div>`);
 
   const $ = (id) => document.getElementById(id);
@@ -569,12 +590,27 @@ function viewRun() {
         ? "Remate"
         : "";
     $("exname").textContent = step.name;
-    $("exmus").textContent = step.muscle || step.note || "";
+    // Mapa muscular: el del ejercicio; en el descanso, el del siguiente.
+    const isRest = step.kind === "rest";
+    const mus = isRest ? step.nextMuscle : step.muscle;
+    const mus2 = isRest ? step.nextMuscle2 : step.muscle2;
+    const zones = musclesFor(mus, mus2);
+    const hasMap = zones.primary.size + zones.secondary.size > 0;
+    $("mapbtn").hidden = !hasMap;
+    // En pequeño, solo la vista donde trabaja lo principal: se ve el doble de grande.
+    $("mapbtn").innerHTML = hasMap ? bodyMapSVG(zones, { label: isRest ? step.nextName : step.name, view: bestView(zones) }) : "";
+    mapCtx = { zones, name: isRest ? step.nextName : step.name, mus, mus2, info: isRest ? step.nextInstructions : step.instructions };
+    $("exmus").textContent = (isRest ? (mus ? "Siguiente · " + mus : "") : mus) || step.note || "";
     // Peso del ejercicio en curso; en el descanso, el del siguiente ("prepara").
-    const tg = step.kind === "work" ? tgtText(step.target) : step.kind === "rest" && step.nextTarget ? "Prepara " + tgtText(step.nextTarget) : "";
-    $("extgt").textContent = tg;
+    const tg = step.kind === "work" ? tgtHTML(step.target) : step.kind === "rest" && step.nextTarget ? tgtHTML(step.nextTarget, "Prepara ") : "";
+    $("extgt").innerHTML = tg;
     $("extgt").hidden = !tg;
-    $("exinfo").textContent = (step.kind === "rest" ? step.nextInstructions : step.instructions) || "";
+    const info = (step.kind === "rest" ? step.nextInstructions : step.instructions) || "";
+    $("exinfo").textContent = info;
+    // Sin texto no es un botón (accesibilidad).
+    $("exinfo").tabIndex = info ? 0 : -1;
+    $("exinfo").toggleAttribute("role", !!info);
+    if (info) $("exinfo").setAttribute("role", "button");
     $("next").textContent = "Siguiente: " + step.nextName + (step.nextAutopause ? " · se parará" : "");
     lastSec = null;
     setDial(step.seconds);
@@ -603,6 +639,18 @@ function viewRun() {
     $("runpane").dataset.status = status;
   };
 
+  let mapCtx = null;
+  const openMap = () => {
+    if (!mapCtx) return;
+    const dlg = $("mapzoom");
+    $("mapTitle").textContent = mapCtx.name || "Músculos";
+    $("mapBig").innerHTML = bodyMapSVG(mapCtx.zones, { label: mapCtx.name });
+    $("mapLegend").innerHTML =
+      (mapCtx.mus ? `<span class="lg"><i class="lg-sq" style="--day: var(--phase)"></i>Principal: ${esc(mapCtx.mus)}</span>` : "") +
+      (mapCtx.mus2 ? `<span class="lg"><i class="lg-sq sec"></i>Secundario: ${esc(mapCtx.mus2)}</span>` : "");
+    $("mapInfo").textContent = mapCtx.info || "";
+    dlg.showModal();
+  };
   const paintMute = () => {
     const b = $("mute");
     b.innerHTML = muted ? ICON.soundOff : ICON.soundOn;
@@ -675,6 +723,40 @@ function viewRun() {
     state.engine?.toggle();
     updatePP();
   };
+  // Mapa muscular ampliado: tocar el mini mapa; cerrar con ✕, Escape, fuera o deslizando.
+  $("mapbtn").onclick = openMap;
+  // Las instrucciones van recortadas: tocarlas abre la hoja con el texto entero.
+  $("exinfo").onclick = openMap;
+  $("exinfo").onkeydown = (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      openMap();
+    }
+  };
+  $("mapClose").onclick = () => $("mapzoom").close();
+  $("mapzoom").addEventListener("click", (e) => {
+    const d = $("mapzoom");
+    if (e.target !== d) return;
+    const rc = d.getBoundingClientRect();
+    if (e.clientX < rc.left || e.clientX > rc.right || e.clientY < rc.top || e.clientY > rc.bottom) d.close();
+  });
+  {
+    let y0 = null;
+    const d = $("mapzoom");
+    for (const el of [d.querySelector(".sheet-head"), d.querySelector(".sheet-grip")]) {
+      el.addEventListener("touchstart", (e) => (y0 = e.touches[0].clientY), { passive: true });
+      el.addEventListener("touchmove", (e) => {
+        if (y0 != null) d.style.transform = `translateY(${Math.max(0, e.touches[0].clientY - y0)}px)`;
+      }, { passive: true });
+      el.addEventListener("touchend", (e) => {
+        const dy = y0 == null ? 0 : e.changedTouches[0].clientY - y0;
+        y0 = null;
+        d.style.transform = "";
+        if (dy > 90) d.close();
+      });
+      el.addEventListener("touchcancel", () => ((y0 = null), (d.style.transform = "")));
+    }
+  }
   $("mute").onclick = () => {
     muted = !muted;
     writeMuted(storage(), muted);
