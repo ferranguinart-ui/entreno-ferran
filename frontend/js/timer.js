@@ -96,6 +96,7 @@ export function buildSteps(day, warmupExercises, { rounds, remates, stretches = 
       kind: "stretch",
       phase: "Estiramientos",
       name: ex.name,
+      exerciseId: ex.id,
       muscle: ex.muscle_primary ?? null,
       muscle2: ex.muscle_secondary ?? null,
       seconds: ex.work_sec ?? 30,
@@ -110,6 +111,7 @@ export function buildSteps(day, warmupExercises, { rounds, remates, stretches = 
     const nxt = steps.slice(i + 1).find((s) => ACTIVE.has(s.kind));
     steps[i].nextName = nxt ? nxt.name : "Fin";
     steps[i].nextInstructions = nxt ? nxt.instructions ?? null : null;
+    steps[i].nextExerciseId = nxt?.exerciseId ?? null;
     steps[i].nextAutopause = !!nxt?.autopause;
   }
   return steps;

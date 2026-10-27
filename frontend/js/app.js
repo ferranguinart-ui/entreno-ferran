@@ -3,6 +3,7 @@ import { buildSteps, TimerEngine, primaryLabel, readMuted, writeMuted, autopause
 import { dialText, ringFraction, changedIndices, beatAt } from "./fx.js";
 import { loadOptions, platesText, targetsFor, detectPRs } from "./plates.js";
 import { musclesFor, bodyMapSVG, bestView } from "./muscles.js";
+import { techniqueSVG, hasTechnique, techniqueKind } from "./technique.js";
 import { weekProgress, nextDayId, mondayISO, stepValue, holdInterval, groupByWeek } from "./stats.js";
 import {
   withAvg,
@@ -14,10 +15,11 @@ import {
   strengthByDay,
   inRange,
   sparkPath,
+  weightSummary,
 } from "./dash.js";
 
 const app = document.getElementById("app");
-const APP_VERSION = "18"; // = número de la caché en sw.js; se muestra en el inicio
+const APP_VERSION = "19"; // = número de la caché en sw.js; se muestra en el inicio
 const state = { boot: null, run: null, engine: null };
 
 const todayISO = () => new Date().toLocaleDateString("sv-SE"); // YYYY-MM-DD local
@@ -68,6 +70,8 @@ const ico = (body) =>
   `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 const SPEAKER = '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>';
 const ICON = {
+  home: ico('<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>'),
+  scale: ico('<path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/>'),
   back: ico('<polygon points="19 20 9 12 19 4 19 20"/><line x1="5" x2="5" y1="19" y2="5"/>'),
   skip: ico('<polygon points="5 4 15 12 5 20 5 4"/><line x1="19" x2="19" y1="5" y2="19"/>'),
   soundOn: ico(SPEAKER + '<path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>'),
@@ -140,6 +144,7 @@ async function router() {
   // La animación de entrada solo al cambiar de ruta, no en cada re-render
   // de la misma vista (stepper de rondas, guardar medida...).
   app.classList.add("entering");
+  paintTabs(hash === "" ? "#/" : hash);
   for (const [re, view] of routes) {
     const m = hash.match(re);
     if (m) return view(...m.slice(1));
@@ -147,6 +152,31 @@ async function router() {
   location.hash = "#/";
 }
 window.addEventListener("hashchange", router);
+
+// ----------------------------- pestañas --------------------------------
+const TABS = [
+  ["#/", "Inicio", "home"],
+  ["#/measure", "Peso", "scale"],
+  ["#/dashboard", "Progreso", "chart"],
+  ["#/history", "Historial", "history"],
+];
+const tabbar = document.createElement("nav");
+tabbar.className = "tabbar";
+tabbar.setAttribute("aria-label", "Secciones");
+tabbar.hidden = true;
+tabbar.innerHTML = TABS.map(([href, label, icon]) => `<a class="tab" href="${href}">${ICON[icon]}${label}</a>`).join("");
+document.body.append(tabbar);
+function paintTabs(hash) {
+  const on = TABS.some(([href]) => href === hash);
+  tabbar.hidden = !on;
+  document.body.classList.toggle("has-tabs", on);
+  for (const a of tabbar.querySelectorAll(".tab")) {
+    const cur = a.getAttribute("href") === hash;
+    a.classList.toggle("on", cur);
+    if (cur) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
+  }
+}
 
 // ------------------------------- login ---------------------------------
 // PIN en puntos (referencia 21st.dev: OTP PIN Field). El input real está
@@ -213,6 +243,20 @@ const writeRecent = (list) => {
     localStorage.setItem(RECENT_KEY, JSON.stringify(list.map(({ date, day_id }) => ({ date, day_id }))));
   } catch (_) {}
 };
+// Pesos (fecha y kg) en localStorage: la tarjeta de peso del inicio pinta al instante.
+const WEIGHTS_KEY = "entreno.weights";
+const readWeights = () => {
+  try {
+    return JSON.parse(localStorage.getItem(WEIGHTS_KEY) || "null");
+  } catch (_) {
+    return null;
+  }
+};
+const writeWeights = (list) => {
+  try {
+    localStorage.setItem(WEIGHTS_KEY, JSON.stringify(list.filter((m) => m.weight_kg != null).map(({ date, weight_kg }) => ({ date, weight_kg }))));
+  } catch (_) {}
+};
 const PLAN_DAYS = [1, 2, 3, 4];
 const estMinutes = (day) =>
   Math.round(
@@ -220,7 +264,36 @@ const estMinutes = (day) =>
   );
 const RING_S = 2 * Math.PI * 18; // anillo semanal (r=18 en un viewBox de 44)
 
-function homeHTML(serverSessions) {
+/** "↑ Hoy sube: Press de pecho a 9 kg (+1)" a partir del "hoy toca" del día. */
+function upsText(day, targets) {
+  const ups = mainExercises(day).filter((e) => targets?.[e.id]?.action === "up");
+  if (!ups.length) return "";
+  const first = `${esc(ups[0].name)} a ${kgLabel(targets[ups[0].id].kg)}`;
+  return `↑ Hoy sube: ${first}${ups.length > 1 ? ` (+${ups.length - 1})` : ""}`;
+}
+
+function weightCardHTML(weights) {
+  const st = state.boot.settings || {};
+  const ws = weightSummary(weights || [], todayISO(), st.goal_weight_kg ?? null, st.phase);
+  if (!ws)
+    return `<a class="card wcard" href="#/measure"><span class="wico">${ICON.scale}</span>
+      <span class="wtxt"><strong>Apunta tu peso</strong><span class="muted small">En ayunas, a primera hora</span></span></a>`;
+  const when = ws.today ? "Peso de hoy" : `Peso de hoy · sin apuntar`;
+  const ago = ws.today ? "" : ` <small>kg · ${fmtDay(ws.last.date)}</small>`;
+  const delta = ws.delta7 == null ? "" : `${ws.delta7 > 0 ? "+" : ws.delta7 < 0 ? "−" : "±"}${kgLabel(Math.abs(ws.delta7))} en 7 días`;
+  const goal = ws.toGoal == null ? "" : ws.toGoal > 0 ? `faltan ${kgLabel(ws.toGoal)}` : "¡objetivo alcanzado!";
+  return `<a class="card wcard${ws.today ? " done" : ""}" href="#/measure" aria-label="${when}: ${kgLabel(ws.last.kg)}">
+    <span class="wico">${ws.today ? ICON.check : ICON.scale}</span>
+    <span class="wtxt">
+      <span class="muted small">${when}</span>
+      <span class="wval">${String(ws.last.kg).replace(".", ",")}${ago || " <small>kg</small>"}</span>
+      <span class="muted small">${[delta, goal].filter(Boolean).join(" · ")}</span>
+    </span>
+    ${ws.spark.length > 1 ? spark(ws.spark, cssVar("--c-rest"), 64, 28, "spark wspark") : ""}
+  </a>`;
+}
+
+function homeHTML(serverSessions, weights) {
   const pend = api.pendingCount();
   const known = Array.isArray(serverSessions);
   // Los entrenos en cola (sin red) van primero: son los más recientes.
@@ -230,20 +303,17 @@ function homeHTML(serverSessions) {
   const today = dayById(todayId);
   const frac = Math.min(1, wk.done / wk.goal);
   const trainedToday = known && sessions.some((x) => String(x.date).slice(0, 10) === todayISO());
-  const dayCard = (d) => {
-    const target = d.id === 5 ? "#/manual" : `#/setup/${d.id}`;
-    const mus = mainExercises(d).map((e) => e.name).slice(0, 4).join(" · ");
-    return `<a class="card day" href="${target}" style="--day: var(--d${d.id})">
-      <div class="row between"><strong>Día ${d.id} — ${esc(d.name)}</strong>
-        ${d.id === 5 ? `<span class="pill">registro</span>` : `<span class="pill">${d.rounds} rondas · ${d.work_sec}s</span>`}</div>
-      <div class="muted small">${esc(mus || d.focus || "Registro manual")}</div>
-    </a>`;
-  };
+  const dateTxt = new Date().toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" });
+  const chip = (d) =>
+    d.id === 5
+      ? `<a class="chip" href="#/manual" style="--day: var(--d5)">${ICON.plus}Libre</a>`
+      : `<a class="chip" href="#/setup/${d.id}" style="--day: var(--d${d.id})"><i></i>${esc(d.name)}</a>`;
+  const others = state.boot.days.filter((d) => d.id >= 1 && (!known || d.id !== todayId));
   return `
     <div class="pane home">
-      <header class="row between home-top">
+      <header class="home-top">
+        <span class="muted small home-date">${dateTxt[0].toUpperCase() + dateTxt.slice(1)}</span>
         <h1 class="brand">Entreno</h1>
-        <button class="glass round" id="out" aria-label="Cerrar sesión" title="Cerrar sesión">${ICON.logout}</button>
       </header>
       ${pend ? `<div class="note warn">${pend} guardado(s) sin subir — se enviarán al reconectar</div>` : ""}
       <section class="card week ${!known ? "skel" : wk.done >= wk.goal ? "complete" : ""}" aria-label="Progreso semanal">
@@ -266,6 +336,7 @@ function homeHTML(serverSessions) {
         <span class="eyebrow">${trainedToday ? "Hoy ya has entrenado · siguiente" : "Entreno de hoy"}</span>
         <strong class="today-name">Día ${today.id} — ${esc(today.name)}</strong>
         <span class="muted small">${esc(mainExercises(today).map((e) => e.name).join(" · "))}</span>
+        <span class="small today-up" id="todayUp">${upsText(today, state.targets[today.id])}</span>
         <span class="row between today-foot">
           <span class="pill">${today.rounds} rondas · ~${estMinutes(today)} min</span>
           <span class="today-go">${ICON.play} Empezar</span>
@@ -273,48 +344,68 @@ function homeHTML(serverSessions) {
       </a>`
           : ""
       }
-      <h3 class="section-title">Todos los días</h3>
-      <div class="day-list">${state.boot.days.filter((d) => d.id >= 1).map(dayCard).join("")}</div>
-      <div class="nav-grid">
-        <a class="btn" href="#/dashboard">${ICON.chart}Dashboard</a>
-        <a class="btn" href="#/manual">${ICON.pen}Sesión manual</a>
-        <a class="btn" href="#/measure">${ICON.ruler}Medidas</a>
-        <a class="btn" href="#/history">${ICON.history}Historial</a>
-      </div>
+      ${weightCardHTML(weights)}
+      <h3 class="section-title">Otro día</h3>
+      <div class="chips">${others.map(chip).join("")}</div>
       <div class="muted small version">Entreno v${APP_VERSION}</div>
     </div>`;
 }
 
+/** Cerrar sesión (ahora vive al final del Historial). */
+async function logout() {
+  try {
+    await api.logout();
+  } catch (_) {
+    toast("Sin conexión: no se puede cerrar sesión ahora");
+    return;
+  }
+  state.boot = null;
+  try {
+    storage()?.removeItem(RECENT_KEY);
+    storage()?.removeItem(WEIGHTS_KEY);
+  } catch (_) {}
+  location.hash = "#/login";
+  router();
+}
+
 function viewHome() {
-  const bind = () => {
-    document.getElementById("out").onclick = async () => {
-      await api.logout();
-      state.boot = null;
-      try {
-        storage()?.removeItem(RECENT_KEY);
-      } catch (_) {}
-      location.hash = "#/login";
-      router();
-    };
+  const mine = (state.homeTok = (state.homeTok || 0) + 1); // otra visita más reciente manda
+  let sessions = readRecent();
+  let weights = readWeights();
+  let shown = homeHTML(sessions, weights);
+  h(shown);
+  const repaint = () => {
+    if (state.homeTok !== mine || (location.hash !== "#/" && location.hash !== "")) return; // ya se ha ido
+    const html = homeHTML(sessions, weights);
+    if (html === shown) return;
+    app.classList.remove("entering"); // repintar sin repetir la animación
+    h(html);
+    shown = html;
   };
-  const first = homeHTML(readRecent());
-  h(first);
-  bind();
+  // "↑ Hoy sube": el hoy toca del día que toca (se carga aparte; sin red, nada).
+  const loadUps = () => {
+    const today = dayById(nextDayId([...api.pendingSessions(), ...(sessions || [])], PLAN_DAYS));
+    if (today) loadTargets(today).then(repaint);
+  };
   // Tras subir la cola pendiente (si la hay), para que no falte nada.
   Promise.resolve(state.flush)
     .catch(() => {})
     .then(() => api.sessions(200)) // ~1 año a 4/semana: la racha no se trunca
     .then((list) => {
       writeRecent(list);
-      if (location.hash !== "#/" && location.hash !== "") return; // ya se ha ido
-      const html = homeHTML(list);
-      if (html !== first) {
-        app.classList.remove("entering"); // repintar sin repetir la animación
-        h(html);
-        bind();
-      }
+      sessions = list;
+      repaint();
+      loadUps();
     })
     .catch(() => {}); // sin red: se queda con lo cacheado
+  api
+    .measurements()
+    .then((list) => {
+      writeWeights(list);
+      weights = list;
+      repaint();
+    })
+    .catch(() => {});
 }
 
 // ----------------------------- hoy toca --------------------------------
@@ -504,6 +595,15 @@ function annotate(steps, targets) {
   }
   return steps;
 }
+/** Técnica: inicio y final (o una postura) del ejercicio. Tocar amplía/reduce. */
+function techniqueHTML(exId, name) {
+  if (!hasTechnique(exId)) return "";
+  const box = (which, label) =>
+    `<figure class="tq-box"><figcaption>${label}</figcaption>${techniqueSVG(exId, which, { label: name })}</figure>`;
+  const imgs = techniqueKind(exId) === "hold" ? box("hold", "Posición") : box("start", "Inicio") + box("end", "Final");
+  return `<h4 class="tq-title">Técnica</h4>
+    <button type="button" class="tq-pair ${techniqueKind(exId)}" aria-pressed="false" aria-label="Ampliar imágenes de técnica">${imgs}</button>`;
+}
 const tgtText = (t) => (t && t.kg != null ? `${kgLabel(t.kg)} ${UNIT[t.equipment] || ""}${t.plates ? " · " + t.plates : ""}` : "");
 // Chip del runner en dos líneas: kg en negrita, discos debajo (solo números y constantes).
 // Subir / bajar se anuncia con flecha y verbo (no solo color): "↑ Sube a 9 kg".
@@ -573,6 +673,7 @@ function viewRun() {
           <h3 id="mapTitle"></h3>
           <button class="glass round" id="mapClose" aria-label="Cerrar">${ICON.close}</button>
         </header>
+        <div id="mapTech" class="tq-sec-wrap"></div>
         <div id="mapBig" class="map-big"></div>
         <div id="mapLegend" class="legend small"></div>
         <p id="mapInfo" class="muted map-info"></p>
@@ -632,7 +733,10 @@ function viewRun() {
     $("mapbtn").hidden = !hasMap;
     // En pequeño, solo la vista donde trabaja lo principal: se ve el doble de grande.
     $("mapbtn").innerHTML = hasMap ? bodyMapSVG(zones, { label: isRest ? step.nextName : step.name, view: bestView(zones) }) : "";
-    mapCtx = { zones, name: isRest ? step.nextName : step.name, mus, mus2, info: isRest ? step.nextInstructions : step.instructions };
+    const exId = isRest ? step.nextExerciseId : step.exerciseId;
+    mapCtx = { zones, exId, name: isRest ? step.nextName : step.name, mus, mus2, info: isRest ? step.nextInstructions : step.instructions };
+    $("mapbtn").classList.toggle("has-tq", hasTechnique(exId));
+    $("mapbtn").setAttribute("aria-label", hasTechnique(exId) ? "Ver técnica y músculos" : "Ver los músculos en grande");
     $("exmus").textContent = (isRest ? (mus ? "Siguiente · " + mus : "") : mus) || step.note || "";
     // Peso del ejercicio en curso; en el descanso, el del siguiente ("prepara").
     const tg = step.kind === "work" ? tgtHTML(step.target) : step.kind === "rest" && step.nextTarget ? tgtHTML(step.nextTarget, "Prepara ") : "";
@@ -707,6 +811,9 @@ function viewRun() {
       (mapCtx.mus ? `<span class="lg"><i class="lg-sq" style="--day: var(--phase)"></i>Principal: ${esc(mapCtx.mus)}</span>` : "") +
       (mapCtx.mus2 ? `<span class="lg"><i class="lg-sq sec"></i>Secundario: ${esc(mapCtx.mus2)}</span>` : "");
     $("mapInfo").textContent = mapCtx.info || "";
+    $("mapTech").innerHTML = techniqueHTML(mapCtx.exId, mapCtx.name);
+    const tq = $("mapTech").querySelector(".tq-pair");
+    if (tq) tq.onclick = () => tq.setAttribute("aria-pressed", String(tq.classList.toggle("zoom")));
     dlg.showModal();
   };
   const paintMute = () => {
@@ -1268,7 +1375,7 @@ async function viewMeasure() {
     .join("");
   h(`
     <div class="pane">
-      ${topBar("Medidas")}
+      ${topBar("Peso", null)}
       <div class="meas-grid">
         ${field("w", "Peso", "kg", "weight_kg", cssVar("--c-rest"))}
         ${field("waist", "Cintura", "cm", "waist_cm", cssVar("--c-waist"))}
@@ -1311,7 +1418,8 @@ async function viewHistory(limit = 50) {
   const weekTitle = (mon) => (mon === mondayISO(todayISO()) ? "Esta semana" : `Semana del ${fmtDay(mon)}`);
   h(`
     <div class="pane history">
-      ${topBar("Historial")}
+      ${topBar("Historial", null)}
+      <a class="btn" href="#/manual">${ICON.plus}Añadir sesión manual</a>
       ${
         weeks.length
           ? weeks
@@ -1339,9 +1447,11 @@ async function viewHistory(limit = 50) {
           : `<div class="card muted">Sin sesiones todavía. ¡La primera te espera!</div>`
       }
       ${hasMore ? `<button class="btn" id="more">Ver más</button>` : ""}
+      <button class="ghost small logout" id="out">${ICON.logout}Cerrar sesión</button>
     </div>`);
   const more = document.getElementById("more");
   if (more) more.onclick = () => viewHistory(limit + 50);
+  document.getElementById("out").onclick = logout;
 }
 
 // ------------------------------ dashboard -------------------------------
@@ -1602,7 +1712,7 @@ async function viewDashboard() {
 
   h(`
     <div class="pane dash">
-      ${topBar("Dashboard")}
+      ${topBar("Progreso", null)}
       <div class="chips" role="group" aria-label="Rango de fechas">
         ${RANGES.map(([k, t]) => `<button class="chip ${k === range ? "on" : ""}" data-range="${k}" aria-pressed="${k === range}">${t}</button>`).join("")}
       </div>

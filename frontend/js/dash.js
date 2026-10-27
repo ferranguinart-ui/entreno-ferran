@@ -154,3 +154,21 @@ export function sparkPath(vals, w, h, pad = 2) {
   const y = (v) => (max === min ? r(h / 2) : r(h - pad - ((v - min) * (h - 2 * pad)) / (max - min)));
   return vals.map((v, i) => `${i ? "L" : "M"}${x(i)},${y(v)}`).join(" ");
 }
+
+/** Resumen para la tarjeta de peso del inicio (medidas en cualquier orden). */
+/** phase: 'deficit' (bajar hasta el objetivo) o 'build' (subir hasta él). */
+export function weightSummary(measurements, todayISO, goal, phase = "deficit") {
+  const pts = withAvg(
+    (measurements || []).filter((m) => m.weight_kg != null).map((m) => ({ date: m.date, y: Number(m.weight_kg) }))
+  );
+  if (!pts.length) return null;
+  const last = pts.at(-1);
+  return {
+    last: { date: last.date, kg: last.y },
+    today: last.date === todayISO,
+    delta7: deltaOver(pts, todayISO, 7),
+    // kg que faltan (≤ 0 = objetivo alcanzado), según la fase
+    toGoal: goal == null ? null : round(phase === "build" ? goal - last.y : last.y - goal, 1),
+    spark: pts.slice(-14).map((p) => p.avg),
+  };
+}

@@ -1104,3 +1104,87 @@ dialog.sheet::backdrop { background: #000a; -webkit-backdrop-filter: blur(6px); 
 @media (min-width: 1280px) {
   .pane.dash { max-width: 1180px; }
 }
+
+
+/* -------------------- pestañas (barra inferior) -------------------- */
+.tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;
+  padding: 8px max(8px, env(safe-area-inset-left)) calc(8px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-right));
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border-top: 1px solid var(--glass-line);
+}
+.tabbar[hidden] { display: none; }
+.tab {
+  display: flex; flex-direction: column; align-items: center; gap: 3px; min-height: 52px; justify-content: center;
+  border-radius: 14px; color: var(--muted); font-size: 12px; font-weight: 600; text-decoration: none;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.tab .ico { width: 22px; height: 22px; }
+.tab.on { color: var(--fg); background: color-mix(in srgb, var(--c-work) 14%, transparent); }
+.tab.on .ico { color: var(--c-work); }
+.tab:focus-visible { outline: 2px solid var(--c-work); outline-offset: 2px; }
+body.has-tabs .pane { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+@media (min-width: 900px) { .tabbar { left: 50%; right: auto; transform: translateX(-50%); width: 560px; border: 1px solid var(--glass-line); border-bottom: 0; border-radius: 18px 18px 0 0; } }
+
+/* -------------------- inicio: fecha, peso, otros días -------------------- */
+.home-top { display: flex; flex-direction: column; gap: 2px; }
+.home-top .brand { margin: 0; }
+.today-up:empty { display: none; }
+.today-up { color: var(--fg); font-weight: 600; }
+.wcard { display: flex; align-items: center; gap: 14px; text-decoration: none; color: var(--fg); }
+.wcard .wico { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; flex: none;
+  background: color-mix(in srgb, var(--c-rest) 18%, transparent); color: var(--c-rest); }
+.wcard.done .wico { background: color-mix(in srgb, var(--c-work) 18%, transparent); color: var(--c-work); }
+.wcard .wico .ico { width: 22px; height: 22px; }
+.wcard .wtxt { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.wcard .wval { font-size: 22px; font-weight: 800; letter-spacing: -0.01em; }
+.wcard .wval small { font-size: 14px; font-weight: 600; color: var(--muted); }
+.wspark { width: 64px; height: 28px; flex: none; margin: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 999px;
+  background: var(--glass); border: 1px solid var(--glass-line); color: var(--fg); font-weight: 600; font-size: 14px;
+  text-decoration: none; transition: border-color var(--dur-fast), transform var(--dur-fast) var(--ease-out); }
+.chip:active { transform: scale(0.97); }
+.chip i { width: 10px; height: 10px; border-radius: 50%; background: var(--day); flex: none; }
+.chip .ico { width: 16px; height: 16px; }
+.logout { display: inline-flex; align-items: center; gap: 6px; align-self: center; margin-top: 8px; }
+.logout .ico { width: 16px; height: 16px; }
+
+
+/* -------------------- técnica: inicio / final -------------------- */
+.tq-title { margin: 4px 0 6px; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.tq-pair {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%;
+  padding: 0; border: 0; background: none; cursor: zoom-in; text-align: center; color: inherit; font: inherit;
+}
+.tq-pair.hold { grid-template-columns: minmax(0, 60%); justify-content: center; }
+.tq-pair.zoom { grid-template-columns: 1fr; cursor: zoom-out; }
+.tq-pair.zoom.hold { grid-template-columns: 1fr; }
+.tq-pair:focus-visible { outline: 2px solid var(--c-work); outline-offset: 4px; border-radius: 16px; }
+.tq-box { margin: 0; background: var(--glass); border: 1px solid var(--glass-line); border-radius: 16px; padding: 6px 6px 8px; }
+.tq-box figcaption { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.tq { width: 100%; height: auto; display: block; max-height: 46vh; }
+.tq-body, .tq-near { stroke: #8a94a6; fill: #8a94a6; stroke-linecap: round; }
+.tq-body { stroke: #6b7586; fill: #6b7586; }
+circle.tq-body { stroke: none; }
+.tq-far { stroke: #3d4553; stroke-linecap: round; }
+.tq-halo { stroke: #1a1f27; stroke-linecap: round; }
+.tq-on { stroke: var(--c-work); stroke-linecap: round; }
+.tq-sec { stroke: color-mix(in srgb, var(--c-work) 30%, #6b7586); stroke-linecap: round; }
+.tq-floor { stroke: var(--glass-line); stroke-width: 2; }
+.tq-prop { fill: #2a3341; }
+.tq-prop-l { stroke: #2a3341; stroke-width: 4; }
+.tq-db { fill: #c9d1dd; stroke: #1a1f27; stroke-width: 2; }
+.tq-db-c { fill: #3d4553; }
+.tq-ghost { opacity: 0.22; }
+.tq-arrow { fill: none; stroke: var(--c-warm); stroke-width: 2.2; stroke-dasharray: 5 4; stroke-linecap: round; }
+.tq-arrow-h { fill: none; stroke: var(--c-warm); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+/* La miniatura del mapa avisa de que dentro hay técnica. */
+.mapbtn { position: relative; }
+.mapbtn.has-tq::after {
+  content: "Técnica"; position: absolute; left: 50%; bottom: -6px; transform: translateX(-50%);
+  padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: 0.02em;
+  color: var(--c-ink); background: var(--phase); white-space: nowrap; pointer-events: none;
+}

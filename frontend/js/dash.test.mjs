@@ -105,3 +105,34 @@ test("sparkPath: polilínea escalada al recuadro (y invertida), con margen", () 
   assert.equal(sparkPath([7], 100, 20, 2), "M50,10", "un punto: centro");
   assert.equal(sparkPath([], 100, 20, 2), "");
 });
+
+import { weightSummary } from "./dash.js";
+
+test("weightSummary: último peso, si es de hoy, tendencia 7 días, falta y puntos de la mini gráfica", () => {
+  const m = [
+    { date: "2026-10-10", weight_kg: 76 },
+    { date: "2026-10-20", weight_kg: 75 },
+    { date: "2026-10-25", weight_kg: null, waist_cm: 80 }, // sin peso: no cuenta
+    { date: "2026-10-26", weight_kg: 74.6 },
+  ];
+  const s = weightSummary(m, "2026-10-27", 70);
+  assert.deepEqual(s.last, { date: "2026-10-26", kg: 74.6 });
+  assert.equal(s.today, false);
+  assert.equal(s.toGoal, 4.6);
+  assert.equal(typeof s.delta7, "number");
+  assert.equal(s.spark.length, 3);
+  assert.equal(weightSummary(m, "2026-10-26", 70).today, true);
+});
+
+test("weightSummary: en fase de volumen el objetivo está por encima", () => {
+  const m = [{ date: "2026-10-26", weight_kg: 74.6 }];
+  assert.equal(weightSummary(m, "2026-10-27", 78, "build").toGoal, 3.4);
+  assert.equal(weightSummary(m, "2026-10-27", 70, "deficit").toGoal, 4.6);
+  assert.ok(weightSummary(m, "2026-10-27", 74, "build").toGoal <= 0); // ya por encima: alcanzado
+  assert.ok(weightSummary(m, "2026-10-27", 75, "deficit").toGoal <= 0);
+});
+
+test("weightSummary: sin pesos → null", () => {
+  assert.equal(weightSummary([], "2026-10-27", 70), null);
+  assert.equal(weightSummary([{ date: "2026-10-27", weight_kg: null }], "2026-10-27", 70), null);
+});

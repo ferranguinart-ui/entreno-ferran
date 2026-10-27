@@ -915,3 +915,10 @@ test("stepStartCues: estiramiento = tono suave y su nombre", () => {
   assert.equal(c.speak, "Hombro cruzado");
   assert.equal(c.tones, TONES.rest);
 });
+
+test("buildSteps: cada paso sabe el id del ejercicio que viene (para la ficha de técnica)", () => {
+  const s = buildSteps(day, [], { rounds: 1, remates: [], stretches });
+  const rest = s.find((x) => x.kind === "rest");
+  assert.equal(rest.nextExerciseId, 11);
+  assert.equal(s.find((x) => x.kind === "stretch").exerciseId, 15);
+});
