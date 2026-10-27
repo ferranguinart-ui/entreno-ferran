@@ -75,6 +75,55 @@ on conflict (id) do update set
   work_sec=excluded.work_sec, rest_sec=excluded.rest_sec, rounds=excluded.rounds,
   is_optional=excluded.is_optional, note=excluded.note, sort_order=excluded.sort_order;
 
+-- ---------------------------- estiramientos -------------------------------
+-- Vuelta a la calma al final de cada día (~2,5 min), sin descanso entre ellos.
+-- Los de un lado duran 40 s: cambiar de lado a mitad (lo dice la instrucción).
+insert into exercises
+  (id, day_id, block, name, muscle_primary, muscle_secondary, work_sec, rest_sec, rounds, is_optional, note, sort_order, instructions)
+values
+  -- Empuje
+  (15, 1, 'stretch', 'Pecho en el marco de la puerta', 'Pectoral', 'Hombro anterior', 40, 0, 1, false, null, 1,
+   'Apoya el antebrazo en el marco de una puerta o en la pared, con el codo a la altura del hombro. Gira el cuerpo hacia el lado contrario hasta notar el pecho estirado, sin forzar. A los 20 s cambia de lado.'),
+  (16, 1, 'stretch', 'Hombro cruzado', 'Hombro posterior', null, 40, 0, 1, false, null, 2,
+   'Lleva un brazo estirado cruzado por delante del pecho y sujétalo por encima del codo con la otra mano. Acércalo al cuerpo sin girar el tronco y con los hombros bajos. A los 20 s cambia de lado.'),
+  (17, 1, 'stretch', 'Tríceps por detrás de la cabeza', 'Tríceps', null, 40, 0, 1, false, null, 3,
+   'Sube un brazo, dobla el codo y deja caer la mano entre los omóplatos. Con la otra mano empuja suavemente el codo hacia atrás, sin arquear la espalda. A los 20 s cambia de lado.'),
+  (18, 1, 'stretch', 'Postura del niño', 'Dorsal ancho', 'Zona lumbar', 30, 0, 1, false, null, 4,
+   'De rodillas, siéntate sobre los talones y lleva el pecho hacia el suelo con los brazos estirados al frente. Deja caer la frente y respira hondo y despacio, notando cómo se abre la espalda.'),
+  -- HIIT + core
+  (25, 2, 'stretch', 'Cuádriceps de pie', 'Cuádriceps', null, 40, 0, 1, false, null, 1,
+   'De pie, apóyate en la pared si lo necesitas. Coge un tobillo por detrás y acerca el talón al glúteo, con las rodillas juntas y la cadera un poco adelantada. A los 20 s cambia de pierna.'),
+  (26, 2, 'stretch', 'Cobra', 'Recto abdominal', 'Zona lumbar', 30, 0, 1, false, null, 2,
+   'Tumbado boca abajo, apoya las manos bajo los hombros y estira los brazos levantando el pecho, con la cadera pegada al suelo. Hombros lejos de las orejas; si molesta la lumbar, apóyate en los antebrazos.'),
+  (27, 2, 'stretch', 'Rodillas al pecho', 'Zona lumbar', 'Glúteo', 30, 0, 1, false, null, 3,
+   'Tumbado boca arriba, abraza las dos rodillas y llévalas hacia el pecho. Deja la cabeza y los hombros relajados en el suelo y balancéate un poco de lado a lado si te apetece.'),
+  (28, 2, 'stretch', 'Glúteo en figura 4', 'Glúteo', null, 40, 0, 1, false, null, 4,
+   'Tumbado boca arriba, cruza un tobillo sobre la rodilla contraria y tira del muslo de abajo hacia el pecho hasta notar el glúteo. Espalda y cabeza en el suelo. A los 20 s cambia de pierna.'),
+  -- Tracción
+  (35, 3, 'stretch', 'Dorsal con el brazo arriba', 'Dorsal ancho', null, 40, 0, 1, false, null, 1,
+   'De pie, sube un brazo por encima de la cabeza, sujeta la muñeca con la otra mano e inclínate hacia el lado contrario. Nota el estiramiento en el costado, sin girar el tronco. A los 20 s cambia de lado.'),
+  (36, 3, 'stretch', 'Bíceps y antebrazo en la pared', 'Bíceps', 'Antebrazo', 40, 0, 1, false, null, 2,
+   'Apoya la palma en la pared a la altura del hombro, con los dedos hacia atrás y el brazo estirado. Gira el cuerpo despacio hacia fuera hasta notar el bíceps y el antebrazo. A los 20 s cambia de brazo.'),
+  (37, 3, 'stretch', 'Isquios sentado', 'Femoral', 'Zona lumbar', 30, 0, 1, false, null, 3,
+   'Sentado en el suelo con las piernas estiradas, inclínate hacia delante desde la cadera con la espalda larga, llevando las manos hacia los pies. Las rodillas pueden flexionarse un poco; no rebotes.'),
+  (38, 3, 'stretch', 'Postura del niño', 'Dorsal ancho', 'Zona lumbar', 30, 0, 1, false, null, 4,
+   'De rodillas, siéntate sobre los talones y lleva el pecho hacia el suelo con los brazos estirados al frente. Deja caer la frente y respira hondo y despacio, notando cómo se abre la espalda.'),
+  -- Piernas + core
+  (45, 4, 'stretch', 'Cuádriceps de pie', 'Cuádriceps', null, 40, 0, 1, false, null, 1,
+   'De pie, apóyate en la pared si lo necesitas. Coge un tobillo por detrás y acerca el talón al glúteo, con las rodillas juntas y la cadera un poco adelantada. A los 20 s cambia de pierna.'),
+  (46, 4, 'stretch', 'Isquios sentado', 'Femoral', 'Zona lumbar', 30, 0, 1, false, null, 2,
+   'Sentado en el suelo con las piernas estiradas, inclínate hacia delante desde la cadera con la espalda larga, llevando las manos hacia los pies. Las rodillas pueden flexionarse un poco; no rebotes.'),
+  (47, 4, 'stretch', 'Glúteo en figura 4', 'Glúteo', null, 40, 0, 1, false, null, 3,
+   'Tumbado boca arriba, cruza un tobillo sobre la rodilla contraria y tira del muslo de abajo hacia el pecho hasta notar el glúteo. Espalda y cabeza en el suelo. A los 20 s cambia de pierna.'),
+  (48, 4, 'stretch', 'Gemelo en la pared', 'Gemelo', null, 40, 0, 1, false, null, 4,
+   'Manos en la pared, adelanta una pierna y lleva la otra atrás con la rodilla estirada y el talón en el suelo. Empuja la cadera hacia delante hasta notar el gemelo. A los 20 s cambia de pierna.')
+on conflict (id) do update set
+  day_id=excluded.day_id, block=excluded.block, name=excluded.name,
+  muscle_primary=excluded.muscle_primary, muscle_secondary=excluded.muscle_secondary,
+  work_sec=excluded.work_sec, rest_sec=excluded.rest_sec, rounds=excluded.rounds,
+  is_optional=excluded.is_optional, note=excluded.note, sort_order=excluded.sort_order,
+  instructions=excluded.instructions;
+
 -- ----------------------------- instrucciones ------------------------------
 -- Texto que el timer muestra bajo el nombre del ejercicio (en el descanso,
 -- el del siguiente). Posición, movimiento y error común. Requiere la columna
@@ -138,3 +187,24 @@ where e.id = v.id and e.equipment is null;
 
 -- Calentamiento: sin peso.
 update exercises set equipment = 'bodyweight' where day_id = 0 and equipment is null;
+-- Estiramientos: sin peso.
+update exercises set equipment = 'bodyweight' where block = 'stretch' and equipment is null;
+
+-- ------------------- corrección única de datos (2026-10-27) -------------------
+-- Hasta la v17, el registro guardaba como reps de hoy las de la última vez si no
+-- se tocaban: quedaron "2"/"3" falsos que bloqueaban la progresión. Aprobado por
+-- Ferran: dejar esas rondas vacías (no se borran sesiones). Se aplica UNA vez
+-- (marca en data_fixes): si luego corrige alguna a mano, un deploy no la pisa.
+with fix as (
+  insert into data_fixes (id) values ('2026-10-27-reps-falsas')
+  on conflict (id) do nothing returning id
+)
+update session_logs set reps = null
+where exists (select 1 from fix)
+  and reps <= 3
+  and (session_id in ('08d413d2-dc75-4cbd-bff7-b6fb1acd5d7e',  -- 2026-10-15 HIIT + core
+                      'd165a2a0-c2f4-4536-8efe-2f2ffffbda77',  -- 2026-10-16 HIIT + core
+                      '95c21844-ec18-4095-9dd2-6da3df79f775',  -- 2026-10-19 HIIT + core
+                      '57b8d597-0758-4f4c-8a8c-d9a871646626')  -- 2026-10-21 Empuje
+       or (session_id = 'c9453773-e7bc-4a12-b273-f82e09efbac1'  -- 2026-10-26 Empuje
+           and exercise_id = 10 and round_number = 1));        -- press de pecho R1

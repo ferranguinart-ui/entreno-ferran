@@ -82,3 +82,12 @@ def test_parity_with_app_js(tmp_path):
     for c, j in zip(cases, js):
         assert progression(c["hist"], c["ex"]) == j["p"], c
         assert plates_text(c["kg"], c["ex"]["equipment"]) == j["t"], c
+
+
+def test_subida_rapida_muy_por_encima():
+    assert progression([ses(8, [24, 23, 18])], EX) == {"action": "up", "kg": 9, "from": 8}
+    assert progression([ses(8, [24, 23, 17])], EX) == {"action": "hold", "kg": 8}
+
+
+def test_subida_rapida_necesita_dos_rondas():
+    assert progression([ses(8, [24])], EX) == {"action": "hold", "kg": 8}

@@ -86,6 +86,11 @@ alter table exercises add column if not exists equipment text
   check (equipment in ('pair','single','bar','bodyweight'));
 alter table exercises add column if not exists rep_min smallint;
 alter table exercises add column if not exists rep_max smallint;
+-- Bloque 'stretch' = estiramientos al final de cada día (vuelta a la calma).
+-- El check se rehace (idempotente) para admitirlo en BDs ya creadas.
+alter table exercises drop constraint if exists exercises_block_check;
+alter table exercises add constraint exercises_block_check
+  check (block in ('warmup','main','remate','stretch'));
 
 -- ---------------------------------------------------------------------------
 -- Sesiones. Una por entrenamiento (timer o manual).
@@ -185,3 +190,12 @@ create table if not exists mcp_tokens (
 );
 create index if not exists mcp_tokens_family_idx on mcp_tokens (family);
 create index if not exists mcp_tokens_expires_idx on mcp_tokens (expires_at);
+
+-- ---------------------------------------------------------------------------
+-- Correcciones de datos de un solo uso: seed.sql inserta aquí su id y solo la
+-- aplica si la fila no existía (así un deploy posterior no la repite).
+-- ---------------------------------------------------------------------------
+create table if not exists data_fixes (
+  id         text primary key,
+  applied_at timestamptz not null default now()
+);

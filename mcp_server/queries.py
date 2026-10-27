@@ -102,7 +102,10 @@ async def resolve_day(day: str | int) -> dict:
 # --------------------------------- plan --------------------------------------
 async def get_plan() -> dict:
     days = await db.fetch("select * from training_days order by sort_order")
-    exs = await db.fetch("select * from exercises order by day_id, sort_order")
+    exs = await db.fetch(
+        "select * from exercises order by day_id, "
+        "case block when 'warmup' then 0 when 'main' then 1 when 'remate' then 2 else 3 end, sort_order"
+    )
     by_day: dict[int, list] = {}
     for e in exs:
         by_day.setdefault(e["day_id"], []).append(e)
@@ -155,7 +158,8 @@ async def get_plan() -> dict:
         },
         "progression_rule": (
             "Doble progresión: subir al siguiente peso montable tras 2 sesiones seguidas con el mismo kg "
-            "y el máximo del rango en todas las rondas; bajar tras 2 sesiones con alguna ronda bajo el mínimo. "
+            "y el máximo del rango en todas las rondas, o ya tras 1 sesión si en todas las rondas (al menos 2 apuntadas) "
+            "se superó el máximo en 4 o más reps; bajar tras 2 sesiones con alguna ronda bajo el mínimo. "
             "Las sesiones de descarga (deload) no cuentan."
         ),
         "warmup": warmup,
@@ -293,7 +297,7 @@ async def get_targets(day: str) -> dict:
     d = await resolve_day(day)
     uid = await user_id()
     exs = await db.fetch(
-        "select * from exercises where day_id = %s and block <> 'warmup' order by block = 'remate', sort_order",
+        "select * from exercises where day_id = %s and block in ('main', 'remate') order by block = 'remate', sort_order",
         d["id"],
     )
     hist = await _history(uid, d["id"])

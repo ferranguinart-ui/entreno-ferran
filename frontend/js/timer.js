@@ -9,7 +9,11 @@
 // - La lógica de "qué suena cuándo" son funciones puras exportadas (testeables
 //   en Node); el motor solo las ejecuta.
 
-export function buildSteps(day, warmupExercises, { rounds, remates }) {
+/** Pasos con ejercicio (los que tienen nombre, músculos e instrucciones propias). */
+export const ACTIVE = new Set(["work", "warmup", "stretch"]);
+const STRETCH_PREP_SEC = 10;
+
+export function buildSteps(day, warmupExercises, { rounds, remates, stretches = [] }) {
   const steps = [];
   const push = (s) => steps.push(s);
 
@@ -85,9 +89,25 @@ export function buildSteps(day, warmupExercises, { rounds, remates }) {
     });
   });
 
-  // "siguiente" = próximo bloque de trabajo/calentamiento
+  // Estiramientos: una pausa corta para colocarse y seguidos, sin descansos.
+  stretches.forEach((ex, i) => {
+    if (i === 0) push({ kind: "rest", phase: "Descanso", name: "Preparar estiramientos", seconds: STRETCH_PREP_SEC, round: rounds, totalRounds: rounds });
+    push({
+      kind: "stretch",
+      phase: "Estiramientos",
+      name: ex.name,
+      muscle: ex.muscle_primary ?? null,
+      muscle2: ex.muscle_secondary ?? null,
+      seconds: ex.work_sec ?? 30,
+      round: rounds,
+      totalRounds: rounds,
+      instructions: ex.instructions ?? null,
+    });
+  });
+
+  // "siguiente" = próximo bloque de trabajo/calentamiento/estiramiento
   for (let i = 0; i < steps.length; i++) {
-    const nxt = steps.slice(i + 1).find((s) => s.kind === "work" || s.kind === "warmup");
+    const nxt = steps.slice(i + 1).find((s) => ACTIVE.has(s.kind));
     steps[i].nextName = nxt ? nxt.name : "Fin";
     steps[i].nextInstructions = nxt ? nxt.instructions ?? null : null;
     steps[i].nextAutopause = !!nxt?.autopause;
@@ -109,19 +129,32 @@ export const TONES = Object.freeze({
   ready: [tone(660, 120), tone(880, 180, 160)], // autopausa: listo, esperando (sube)
 });
 
+/** "sube a 9 kilos" · "baja a 7,5 kilos" · "8 kilos" (cap = mayúscula inicial). */
+function kgSpeech(action, kg, cap = false) {
+  const n = `${String(kg).replace(".", ",")} kilos`;
+  const txt = action === "up" ? `sube a ${n}` : action === "down" ? `baja a ${n}` : n;
+  return cap ? txt[0].toUpperCase() + txt.slice(1) : txt;
+}
+
 /** Qué suena y qué se dice al ENTRAR en un paso (o {kind:"done"} al acabar). */
 export function stepStartCues(step) {
   switch (step?.kind) {
     case "warmup":
-    case "work":
       return { tones: TONES.work, speak: step.name };
+    case "work": {
+      // Ronda 1: no hay descanso antes que lo anuncie, así que el cambio de peso va aquí.
+      const t = step.target;
+      const shift = step.round === 1 && t && t.kg != null && (t.action === "up" || t.action === "down");
+      return { tones: TONES.work, speak: shift ? `${step.name}. ${kgSpeech(t.action, t.kg, true)}` : step.name };
+    }
+    case "stretch":
+      return { tones: TONES.rest, speak: step.name };
     case "rest":
       return {
         tones: TONES.rest,
         speak:
           step.nextName && step.nextName !== "Fin"
-            ? `Descanso. Siguiente: ${step.nextName}` +
-              (step.nextKg != null ? `, ${String(step.nextKg).replace(".", ",")} kilos` : "")
+            ? `Descanso. Siguiente: ${step.nextName}` + (step.nextKg != null ? `, ${kgSpeech(step.nextAction, step.nextKg)}` : "")
             : "Descanso",
       };
     case "done":
@@ -497,6 +530,12 @@ export class TimerEngine {
     this._stepCues(finishCue(this.finalCue));
     this._teardown(); // no stop(): cancelaría la voz del aviso final
     this.onDone();
+  }
+
+  /** Fin de entreno anunciado aparte: el bloque terminó sin aviso final (se esperaba
+   *  remate o estiramientos) y al final no hubo nada más. */
+  announceDone() {
+    this._stepCues({ kind: "done" });
   }
 
   // --- señales ---

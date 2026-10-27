@@ -176,7 +176,7 @@ async def bootstrap(user: str = Depends(current_user)):
     days = await db.fetch("select * from training_days order by sort_order")
     exs = await db.fetch(
         "select * from exercises order by day_id, "
-        "case block when 'warmup' then 0 when 'main' then 1 else 2 end, sort_order"
+        "case block when 'warmup' then 0 when 'main' then 1 when 'remate' then 2 else 3 end, sort_order"
     )
     by_day: dict[int, list] = {}
     for e in exs:

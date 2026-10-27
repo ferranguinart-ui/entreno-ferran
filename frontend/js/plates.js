@@ -75,11 +75,15 @@ export function stepLoad(kg, eq, dir) {
   return [...o].reverse().find((v) => v < r2(kg)) ?? o[0];
 }
 
+/** Reps por encima del máximo del rango que justifican subir tras una sola sesión. */
+export const JUMP_MARGIN = 4;
+
 const allAtLeast = (reps, n) => reps.length > 0 && reps.every((r) => r >= n);
 const anyBelow = (reps, n) => reps.some((r) => r < n);
 
 /** Doble progresión. `history`: sesiones de MÁS RECIENTE a más antigua,
  *  cada una {kg, reps:[por ronda], deload}. El deload no cuenta.
+ *  Sube tras 2 sesiones seguidas al máximo, o tras 1 si va JUMP_MARGIN por encima.
  *  → {action: start|hold|up|down, kg, from?} */
 export function progression(history, ex) {
   const eq = ex.equipment;
@@ -89,7 +93,13 @@ export function progression(history, ex) {
   const last = real[0];
   const kg = last.kg ?? null;
   if (kg == null) return { action: "start", kg: null };
-  if (ex.rep_min == null || ex.rep_max == null || real.length < 2) return { action: "hold", kg };
+  if (ex.rep_min == null || ex.rep_max == null) return { action: "hold", kg };
+  // Muy sobrado (máximo + JUMP_MARGIN en todas las rondas): subir ya, sin esperar otra sesión.
+  if (last.reps.length >= 2 && allAtLeast(last.reps, ex.rep_max + JUMP_MARGIN)) {
+    const up = stepLoad(kg, eq, 1);
+    if (up > kg) return { action: "up", kg: up, from: kg };
+  }
+  if (real.length < 2) return { action: "hold", kg };
   const [a, b] = real;
   const sameKg = r2(a.kg ?? -1) === r2(b.kg ?? -2);
   if (sameKg && allAtLeast(a.reps, ex.rep_max) && allAtLeast(b.reps, ex.rep_max)) {

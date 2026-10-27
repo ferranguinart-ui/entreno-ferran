@@ -98,6 +98,9 @@ async def test_plan(pool):
     assert press["name"] == "Press de pecho en suelo" and press["work_sec"] == 40
     assert press["rep_range"] and press["equipment"] == "pair"
     assert p["warmup"]["exercises"][0]["work_sec"] == 30
+    # estiramientos al final de cada día, después del remate
+    blocks = [e["block"] for e in p["days"][0]["exercises"]]
+    assert blocks[-4:] == ["stretch"] * 4 and blocks.index("remate") < blocks.index("stretch")
 
 
 @pytest.mark.anyio
@@ -108,6 +111,7 @@ async def test_targets_dice_cuando_subir(pool):
     assert press["action"] == "up" and press["kg"] == 9 and press["from"] == 8
     assert press["plates"] == "por lado: 2,5 + 2"
     assert press["last"]["reps"] == [15, 14]
+    assert not any("marco" in x["exercise"] for x in t["targets"])  # los estiramientos no llevan peso
     aper = next(x for x in t["targets"] if x["exercise"] == "Aperturas en suelo")
     assert aper["action"] == "start"
 

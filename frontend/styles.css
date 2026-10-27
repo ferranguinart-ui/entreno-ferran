@@ -28,6 +28,7 @@
   --c-work: #2fd47e;
   --c-rest: #4d9bff;
   --c-warm: #ffb547;
+  --c-stretch: #b48cff; /* estiramientos: vuelta a la calma */
   --c-ink: #08110c;          /* texto sobre color de fase */
   /* Color por tipo de día (inicio, historial, dashboard). Paleta categórica
      validada (skill dataviz, oscuro sobre #1a1d24, todos los pares): sin FAIL,
@@ -384,6 +385,7 @@ th { color: var(--muted); font-weight: 500; }
 .run[data-kind="work"]   { --phase: var(--c-work); }
 .run[data-kind="rest"]   { --phase: var(--c-rest); }
 .run[data-kind="warmup"] { --phase: var(--c-warm); }
+.run[data-kind="stretch"] { --phase: var(--c-stretch); }
 .run[data-kind="prep"]   { --phase: var(--c-warm); } /* cuenta atrás: mismo ámbar de "prepararse" */
 
 /* Aurora: manchas de luz del color de la fase, a la deriva y desenfocadas. */
@@ -749,6 +751,15 @@ select.kg {
   max-width: 100%;
 }
 .tgt[hidden] { display: none; }
+/* Toca cambiar de peso: borde más marcado y un latido al aparecer. */
+.tgt[data-shift="up"], .tgt[data-shift="down"] {
+  border-width: 2px;
+  border-color: var(--phase);
+  background: color-mix(in srgb, var(--phase) 28%, transparent);
+  animation: tgt-pulse 1.2s var(--ease-out) 2;
+}
+@keyframes tgt-pulse { 50% { transform: scale(1.06); } }
+@media (prefers-reduced-motion: reduce) { .tgt[data-shift] { animation: none; } }
 .rep-step .round { width: 44px; height: 44px; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
 .rep-step .round .ico { width: 18px; height: 18px; }
 .rep-step input.reps { width: 54px; padding: 8px 2px; }
@@ -758,7 +769,18 @@ input.reps { -moz-appearance: textfield; }
 
 /* Reps en el descanso (runner): mismo stepper que el registro. */
 /* Pregunta y contador en una fila: ocupa lo mismo que las 3 líneas de instrucciones. */
-.restlog { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 4px; text-align: left; }
+.restlog { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 10px; margin-top: 4px; text-align: center; }
+.restlog #rlLabel { flex-basis: 100%; max-width: none; }
+.rl-save {
+  min-height: 44px; padding: 0 16px; border-radius: 999px; font-weight: 700; font-size: 15px;
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  color: var(--c-ink); background: var(--phase); border: 1px solid var(--phase);
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.rl-save.saved { color: var(--fg); background: color-mix(in srgb, var(--phase) 18%, transparent); }
+.rl-save .ico { width: 18px; height: 18px; }
+.rl-save.pop { animation: tgt-pulse 0.35s var(--ease-out); }
+@media (prefers-reduced-motion: reduce) { .rl-save.pop { animation: none; } }
 .restlog[hidden], .instructions[hidden] { display: none; }
 .restlog .small { color: var(--fg); font-weight: 600; max-width: 150px; line-height: 1.3; }
 .restlog .rep-step input.reps { width: 72px; font-size: 24px; }

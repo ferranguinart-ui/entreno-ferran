@@ -867,3 +867,51 @@ test("audio: un único AudioContext compartido entre motores, con resume en star
     else globalThis.window = prevW;
   }
 });
+
+test("stepStartCues: avisa por voz cuando toca subir o bajar de peso", () => {
+  assert.equal(
+    stepStartCues({ kind: "rest", nextName: "Press militar", nextKg: 9, nextAction: "up" }).speak,
+    "Descanso. Siguiente: Press militar, sube a 9 kilos"
+  );
+  assert.equal(
+    stepStartCues({ kind: "rest", nextName: "Press militar", nextKg: 7.5, nextAction: "down" }).speak,
+    "Descanso. Siguiente: Press militar, baja a 7,5 kilos"
+  );
+  // primera ronda: el aviso va también al empezar el ejercicio (no hay descanso antes)
+  assert.equal(
+    stepStartCues({ kind: "work", name: "Press de pecho", round: 1, target: { action: "up", kg: 9 } }).speak,
+    "Press de pecho. Sube a 9 kilos"
+  );
+  assert.equal(stepStartCues({ kind: "work", name: "Press de pecho", round: 2, target: { action: "up", kg: 9 } }).speak, "Press de pecho");
+  assert.equal(stepStartCues({ kind: "work", name: "Press de pecho", round: 1, target: { action: "hold", kg: 8 } }).speak, "Press de pecho");
+});
+
+const stretches = [
+  { id: 15, block: "stretch", name: "Pecho en el marco", work_sec: 40, rest_sec: 0, muscle_primary: "Pectoral", instructions: "Gira el cuerpo." },
+  { id: 16, block: "stretch", name: "Hombro cruzado", work_sec: 40, rest_sec: 0, muscle_primary: "Hombro posterior" },
+];
+
+test("buildSteps: estiramientos al final, tras una pausa corta y sin descansos entre ellos", () => {
+  const s = buildSteps(day, [], { rounds: 0, remates: [], stretches });
+  assert.deepEqual(s.map((x) => [x.kind, x.name, x.seconds]), [
+    ["rest", "Preparar estiramientos", 10],
+    ["stretch", "Pecho en el marco", 40],
+    ["stretch", "Hombro cruzado", 40],
+  ]);
+  assert.equal(s[1].phase, "Estiramientos");
+  assert.equal(s[1].muscle, "Pectoral");
+  assert.equal(s[0].nextName, "Pecho en el marco");
+  assert.equal(s[2].nextName, "Fin");
+});
+
+test("buildSteps: remate y luego estiramientos", () => {
+  const s = buildSteps(day, [], { rounds: 0, remates: [day.exercises[3]], stretches });
+  assert.deepEqual(s.map((x) => x.name), ["Preparar remate", "Flexiones", "Preparar estiramientos", "Pecho en el marco", "Hombro cruzado"]);
+  assert.equal(s[1].nextName, "Pecho en el marco");
+});
+
+test("stepStartCues: estiramiento = tono suave y su nombre", () => {
+  const c = stepStartCues({ kind: "stretch", name: "Hombro cruzado" });
+  assert.equal(c.speak, "Hombro cruzado");
+  assert.equal(c.tones, TONES.rest);
+});

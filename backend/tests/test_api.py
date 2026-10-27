@@ -86,7 +86,7 @@ def test_seed_matches_plan(auth_client):
 def _assert_all_instructions(client):
     days = client.get("/api/bootstrap").json()["days"]
     exs = [e for d in days for e in d["exercises"]]
-    assert len(exs) == 24  # 4 de calentamiento + 5 por cada día 1-4
+    assert len(exs) == 40  # 4 de calentamiento + 5 por cada día 1-4 + 4 estiramientos por día
     for e in exs:
         txt = e.get("instructions")
         assert isinstance(txt, str) and len(txt.strip()) > 20, f"ejercicio {e['id']} sin instrucciones"

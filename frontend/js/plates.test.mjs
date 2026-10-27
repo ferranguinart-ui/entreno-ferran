@@ -153,3 +153,19 @@ test("detectPRs: claves de peso iguales a las de Python (4,75 no se confunde con
   const logs = [{ exercise_id: 30, round_number: 1, reps: 12, weight_kg: 4.75 }];
   assert.deepEqual(detectPRs(records, logs), [{ exerciseId: 30, type: "reps", kg: 4.75, reps: 12, prev: 10 }]);
 });
+
+test("progression: muy por encima del rango en una sola sesión → subir ya", () => {
+  const ex = { equipment: "pair", rep_min: 10, rep_max: 14 };
+  // 18+ en todas las rondas (máximo + 4): no hace falta esperar a la segunda sesión
+  assert.deepEqual(progression([ses(8, [24, 23, 18])], ex), { action: "up", kg: 9, from: 8 });
+  assert.deepEqual(progression([ses(8, [24, 23, 18]), ses(7.5, [12, 12])], ex), { action: "up", kg: 9, from: 8 });
+  // una ronda por debajo de máximo + 4 → regla normal (mantener)
+  assert.deepEqual(progression([ses(8, [24, 23, 17])], ex), { action: "hold", kg: 8 });
+  // el deload no cuenta para el salto
+  assert.deepEqual(progression([ses(8, [30, 30], true), ses(8, [12, 12])], ex).action, "hold");
+});
+
+test("progression: el salto rápido necesita al menos 2 rondas apuntadas", () => {
+  const ex = { equipment: "pair", rep_min: 10, rep_max: 14 };
+  assert.deepEqual(progression([ses(8, [24])], ex), { action: "hold", kg: 8 });
+});

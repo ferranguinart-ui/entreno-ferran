@@ -1,5 +1,5 @@
 import { api } from "./api.js";
-import { buildSteps, TimerEngine, primaryLabel, readMuted, writeMuted, autopauseState } from "./timer.js";
+import { buildSteps, TimerEngine, primaryLabel, readMuted, writeMuted, autopauseState, ACTIVE } from "./timer.js";
 import { dialText, ringFraction, changedIndices, beatAt } from "./fx.js";
 import { loadOptions, platesText, targetsFor, detectPRs } from "./plates.js";
 import { musclesFor, bodyMapSVG, bestView } from "./muscles.js";
@@ -17,7 +17,7 @@ import {
 } from "./dash.js";
 
 const app = document.getElementById("app");
-const APP_VERSION = "17"; // = número de la caché en sw.js; se muestra en el inicio
+const APP_VERSION = "18"; // = número de la caché en sw.js; se muestra en el inicio
 const state = { boot: null, run: null, engine: null };
 
 const todayISO = () => new Date().toLocaleDateString("sv-SE"); // YYYY-MM-DD local
@@ -61,6 +61,7 @@ const dayById = (id) => state.boot.days.find((d) => d.id === +id);
 const warmupExercises = () => (dayById(0)?.exercises || []).filter((e) => e.block === "warmup");
 const mainExercises = (day) => day.exercises.filter((e) => e.block === "main");
 const remateExercises = (day) => day.exercises.filter((e) => e.block === "remate");
+const stretchExercises = (day) => day.exercises.filter((e) => e.block === "stretch");
 
 // Iconos de línea (Lucide, ISC): mismo trazo en toda la app.
 const ico = (body) =>
@@ -215,7 +216,7 @@ const writeRecent = (list) => {
 const PLAN_DAYS = [1, 2, 3, 4];
 const estMinutes = (day) =>
   Math.round(
-    buildSteps(day, warmupExercises(), { rounds: day.rounds, remates: [] }).reduce((a, x) => a + x.seconds, 0) / 60
+    buildSteps(day, warmupExercises(), { rounds: day.rounds, remates: [], stretches: stretchExercises(day) }).reduce((a, x) => a + x.seconds, 0) / 60
   );
 const RING_S = 2 * Math.PI * 18; // anillo semanal (r=18 en un viewBox de 44)
 
@@ -369,6 +370,8 @@ function viewSetup(dayId) {
   if (!day) return (location.hash = "#/");
   let rounds = day.rounds;
   let deload = false;
+  let stretch = true; // estiramientos al final (se pueden saltar hoy)
+  const stretchMin = Math.round(stretchExercises(day).reduce((a, e) => a + (e.work_sec ?? 30), 10) / 60);
   // Autopausa: por ejercicio (main + remate); el interruptor general los cambia todos.
   const apExercises = [...mainExercises(day), ...remateExercises(day)];
   const setAutopause = (ids, on) => {
@@ -413,6 +416,7 @@ function viewSetup(dayId) {
             <button id="plus" class="glass" aria-label="Más rondas" ${deload ? "disabled" : ""}>${ICON.plus}</button>
           </div>
           ${switchRow(`Semana de deload (${day.rounds_deload} rondas)`, `id="deload" ${deload ? "checked" : ""}`)}
+          ${stretchExercises(day).length ? switchRow(`Estiramientos al final (~${stretchMin} min)`, `id="stretch" ${stretch ? "checked" : ""}`) : ""}
         </div>
         <div class="card col gap hoy">
           <div class="row between"><strong>Hoy toca</strong><span class="muted small">peso de discos</span></div>
@@ -440,6 +444,8 @@ function viewSetup(dayId) {
     document.getElementById("minus").onclick = () => { rounds = Math.max(day.rounds_min, rounds - 1); draw(); };
     document.getElementById("plus").onclick = () => { rounds = Math.min(day.rounds_max, rounds + 1); draw(); };
     document.getElementById("deload").onchange = (e) => { deload = e.target.checked; draw(); };
+    const st = document.getElementById("stretch");
+    if (st) st.onchange = (e) => { stretch = e.target.checked; };
     paintAutopause();
     document.getElementById("ap-all").onchange = () =>
       setAutopause(apExercises.map((e) => e.id), autopauseState(apExercises) !== "all");
@@ -457,6 +463,7 @@ function viewSetup(dayId) {
         targets: state.targets[day.id] || null,
         lastLogs: state.lastLogs[day.id] || {},
         roundLog: {}, // exId → {ronda: reps} apuntadas en el descanso
+        stretch,
       };
       location.hash = "#/run";
     };
@@ -480,12 +487,12 @@ const replay = (el, cls) => {
 function annotate(steps, targets) {
   for (const st of steps) st.target = targets && st.exerciseId != null ? targets[st.exerciseId] || null : null;
   for (let i = 0; i < steps.length; i++) {
-    const nxt = steps.slice(i + 1).find((x) => x.kind === "work" || x.kind === "warmup");
+    const nxt = steps.slice(i + 1).find((x) => ACTIVE.has(x.kind));
     // El descanso justo después de un ejercicio sirve para apuntar sus reps.
     const prev = steps[i - 1];
     steps[i].prevWork =
       steps[i].kind === "rest" && prev?.kind === "work" && prev.exerciseId != null
-        ? { exerciseId: prev.exerciseId, round: prev.round || 1, name: prev.name }
+        ? { exerciseId: prev.exerciseId, round: prev.phase === "Remate" ? 1 : prev.round || 1, name: prev.name }
         : null;
     // El descanso enseña los músculos del ejercicio que viene.
     steps[i].nextMuscle = nxt?.muscle ?? null;
@@ -493,13 +500,19 @@ function annotate(steps, targets) {
     const t = nxt?.target;
     steps[i].nextTarget = t && t.kg != null && t.equipment !== "bodyweight" ? t : null;
     steps[i].nextKg = steps[i].nextTarget?.kg ?? null;
+    steps[i].nextAction = steps[i].nextTarget?.action ?? null;
   }
   return steps;
 }
 const tgtText = (t) => (t && t.kg != null ? `${kgLabel(t.kg)} ${UNIT[t.equipment] || ""}${t.plates ? " · " + t.plates : ""}` : "");
 // Chip del runner en dos líneas: kg en negrita, discos debajo (solo números y constantes).
+// Subir / bajar se anuncia con flecha y verbo (no solo color): "↑ Sube a 9 kg".
+const SHIFT = { up: "↑ Sube a ", down: "↓ Baja a " };
 const tgtHTML = (t, prefix = "") =>
-  t && t.kg != null ? `<b>${prefix}${kgLabel(t.kg)} ${UNIT[t.equipment] || ""}</b>${t.plates ? `<span>${t.plates}</span>` : ""}` : "";
+  t && t.kg != null
+    ? `<b>${SHIFT[t.action] || prefix}${kgLabel(t.kg)} ${UNIT[t.equipment] || ""}</b>` +
+      (t.action === "up" || t.action === "down" ? `<span>antes ${kgLabel(t.from)}${t.plates ? " · " + t.plates : ""}</span>` : t.plates ? `<span>${t.plates}</span>` : "")
+    : "";
 
 function viewRun() {
   const r = state.run;
@@ -543,6 +556,7 @@ function viewRun() {
           <input id="rlInput" class="reps" type="number" inputmode="numeric" min="0" max="999" placeholder="—" aria-label="Reps de la ronda que acabas de hacer" />
           <button type="button" class="glass round" data-step="1" aria-label="Una rep más">${ICON.plus}</button>
         </div>
+        <button type="button" id="rlSave" class="rl-save">Guardar</button>
       </div>
       <div id="next" class="next"></div>
       <div class="bar"><div id="fill" class="fill"></div></div>
@@ -603,7 +617,7 @@ function viewRun() {
     const total = state.engine?.steps.length || steps.length;
     $("runpane").dataset.kind = step.kind;
     $("round").textContent =
-      step.round > 0 && step.kind !== "warmup" && step.phase !== "Remate"
+      step.round > 0 && step.kind !== "warmup" && step.kind !== "stretch" && step.phase !== "Remate"
         ? `Ronda ${step.round}/${step.totalRounds}`
         : step.phase === "Remate"
         ? "Remate"
@@ -623,6 +637,7 @@ function viewRun() {
     // Peso del ejercicio en curso; en el descanso, el del siguiente ("prepara").
     const tg = step.kind === "work" ? tgtHTML(step.target) : step.kind === "rest" && step.nextTarget ? tgtHTML(step.nextTarget, "Prepara ") : "";
     $("extgt").innerHTML = tg;
+    $("extgt").dataset.shift = (step.kind === "work" ? step.target : step.nextTarget)?.action || "";
     $("extgt").hidden = !tg;
     const info = (step.kind === "rest" ? step.nextInstructions : step.instructions) || "";
     // Descanso tras un ejercicio: en el hueco de las instrucciones se apuntan sus reps
@@ -639,6 +654,7 @@ function viewRun() {
       const lastSame = (r.lastLogs?.[pw.exerciseId] || r.lastLogs?.[String(pw.exerciseId)] || [])[0]?.rounds?.find((x) => x.round === pw.round)?.reps;
       inp.value = done ?? lastSame ?? "";
       inp.classList.toggle("ghosted", done == null); // sugerido, aún no apuntado
+      markSaved(done != null);
     }
     $("exinfo").textContent = info;
     // Sin texto no es un botón (accesibilidad).
@@ -653,6 +669,14 @@ function viewRun() {
     replay($("exinfo"), "enter");
     $("fill").style.width = `${((i + 1) / total) * 100}%`;
     updatePP();
+  };
+
+  // Botón del descanso: "Guardar" mientras falte confirmar; "✓ Guardado" después.
+  const markSaved = (saved) => {
+    const b = $("rlSave");
+    b.classList.toggle("saved", saved);
+    b.innerHTML = saved ? `${ICON.check}Guardado` : "Guardar";
+    b.setAttribute("aria-label", saved ? "Reps guardadas" : "Guardar reps de esta ronda");
   };
 
   const updatePP = () => {
@@ -717,7 +741,30 @@ function viewRun() {
     totalDuration += state.engine.durationSec();
     updatePP();
     const rem = remateExercises(day);
-    if (!rem.length) return finish([]);
+    const str = r.stretch ? stretchExercises(day) : [];
+    // Lo que va tras el bloque principal (remate elegido + estiramientos) va en
+    // otro motor. Sin nada más, directo al registro.
+    const runTail = (exs) => {
+      if (!exs.length && !str.length) {
+        if (tailAhead) state.engine.announceDone(); // el motor principal dijo "Bloque terminado"
+        return finish(exs);
+      }
+      const tSteps = annotate(buildSteps(day, [], { rounds: 0, remates: exs, stretches: str }), r.targets);
+      // Su primer descanso no ve el último ejercicio del bloque principal: se le
+      // enlaza a mano para apuntar sus reps (la última ronda).
+      const lastWork = steps.findLast((x) => x.kind === "work" && x.exerciseId != null);
+      if (tSteps[0]?.kind === "rest" && lastWork)
+        tSteps[0].prevWork = { exerciseId: lastWork.exerciseId, round: lastWork.round || 1, name: lastWork.name };
+      $("overlay").classList.remove("show");
+      $("overlay").innerHTML = "";
+      state.engine = makeEngine(tSteps, () => {
+        totalDuration += state.engine.durationSec();
+        finish(exs);
+      });
+      state.engine.start(); // el audio ya está desbloqueado desde el Iniciar
+      updatePP();
+    };
+    if (!rem.length) return runTail([]);
     const ov = $("overlay");
     ov.classList.add("show");
     ov.innerHTML = `
@@ -733,23 +780,13 @@ function viewRun() {
       </div>`;
     $("remgo").onclick = () => {
       const chosen = [...ov.querySelectorAll("input:checked")].map((c) => +c.value);
-      const exs = rem.filter((e) => chosen.includes(e.id));
-      if (!exs.length) return finish([]);
-      const rSteps = annotate(buildSteps(day, [], { rounds: 0, remates: exs }), r.targets);
-      ov.classList.remove("show");
-      ov.innerHTML = "";
-      state.engine = makeEngine(rSteps, () => {
-        totalDuration += state.engine.durationSec();
-        finish(exs);
-      });
-      // Este click es un gesto del usuario: arranca directamente (desbloquea audio).
-      state.engine.start();
-      updatePP();
+      runTail(rem.filter((e) => chosen.includes(e.id)));
     };
   };
 
-  // Si queda remate, al acabar el bloque principal no se anuncia "Entreno terminado".
-  state.engine = makeEngine(steps, afterMain, remateExercises(day).length === 0);
+  // Si queda remate o estiramientos, al acabar el bloque principal no se anuncia "Entreno terminado".
+  const tailAhead = remateExercises(day).length > 0 || (r.stretch && stretchExercises(day).length > 0);
+  state.engine = makeEngine(steps, afterMain, !tailAhead);
   paint(steps[0], 0);
   paintMute();
 
@@ -770,7 +807,17 @@ function viewRun() {
     r.roundLog[ex] ||= {};
     r.roundLog[ex][round] = inp.value === "" ? null : Math.min(999, Math.max(0, Math.round(+inp.value)));
     inp.classList.remove("ghosted");
+    markSaved(false); // cambiado: falta confirmar (aunque ya queda apuntado)
   });
+  // "Guardar": confirma lo que hay (también el número sugerido) y cierra el teclado.
+  $("rlSave").onclick = () => {
+    const inp = $("rlInput");
+    if (inp.value === "") return inp.focus();
+    inp.dispatchEvent(new Event("input"));
+    inp.blur();
+    markSaved(true);
+    replay($("rlSave"), "pop");
+  };
   // Tocar el número sugerido (gris) lo da por bueno sin tener que cambiarlo.
   $("rlInput").addEventListener("focus", (e) => {
     if (e.target.classList.contains("ghosted") && e.target.value !== "") e.target.dispatchEvent(new Event("input"));
@@ -877,11 +924,11 @@ function confetti(colors) {
 
 /** Stepper de reps (referencia 21st.dev: Quantity Stepper): −/+ con pulsación
  *  mantenida que acelera; el número también se puede escribir. */
-const repStep = (name, round, value) => `
+const repStep = (name, round, value, hint = null) => `
     <div class="rep-step">
       <button type="button" class="glass round" data-step="-1" aria-label="Una rep menos, ${esc(name)} ronda ${round}">${ICON.minus}</button>
       <input class="reps" type="number" inputmode="numeric" min="0" max="999"
-             value="${value ?? ""}" placeholder="—" aria-label="Reps de ${esc(name)}, ronda ${round}" />
+             value="${value ?? ""}" placeholder="${hint ?? "—"}" aria-label="Reps de ${esc(name)}, ronda ${round}${hint != null ? `, la última vez ${hint}` : ""}" />
       <button type="button" class="glass round" data-step="1" aria-label="Una rep más, ${esc(name)} ronda ${round}">${ICON.plus}</button>
     </div>`;
 
@@ -900,14 +947,15 @@ const kgSelect = (e, round, kg) => {
 const exerciseLog = (e, dayId, rounds, target, last, done) => {
   const w = weighted(e);
   const kg0 = target?.kg ?? last?.kg ?? null;
-  // Lo apuntado en el descanso manda; si no, lo de la última vez.
-  // (vaciado en el descanso = null: se respeta; no tocado = undefined: la última vez)
-  const lastReps = (k) => (done && k in done ? done[k] : last?.rounds?.find((x) => x.round === k)?.reps ?? null);
+  // Valor = solo lo apuntado hoy (en el descanso). Lo de la última vez es una pista
+  // en gris (placeholder): si no se confirma, NO se guarda como si fuera de hoy.
+  const today = (k) => (done && k in done ? done[k] : null);
+  const hint = (k) => last?.rounds?.find((x) => x.round === k)?.reps ?? null;
   const rows = Array.from({ length: rounds }, (_, i) => i + 1)
     .map(
       (k) => `<div class="round-row" data-round="${k}">
         <span class="rn">R${k}</span>
-        ${repStep(e.name, k, lastReps(k))}
+        ${repStep(e.name, k, today(k), hint(k))}
         ${w ? kgSelect(e, k, kg0) : ""}
       </div>`
     )
@@ -948,7 +996,9 @@ function bindSteppers(root) {
     let timer = null;
     let n = 0;
     const bump = (d) => {
-      const v = stepValue(input.value, d);
+      // Vacío con pista (la última vez): − / + parten de ella.
+      const base = input.value === "" && /^\d+$/.test(input.placeholder) ? input.placeholder : input.value;
+      const v = stepValue(base, d);
       if (String(v) === input.value) return;
       input.value = String(v);
       input.dispatchEvent(new Event("input", { bubbles: true })); // avisa a quien escuche (descanso)

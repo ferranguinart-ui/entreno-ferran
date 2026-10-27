@@ -107,7 +107,8 @@ async def get_sessions(
 async def get_plan() -> str:
     """Definición del plan: calentamiento compartido y los días (Empuje, HIIT + core, Tracción,
     Piernas + core, Libre) con rondas (por defecto, rango y deload), descansos en segundos y
-    ejercicios (bloque main/remate, segundos de trabajo, músculos, material, rango de reps objetivo).
+    ejercicios (bloque main/remate/stretch = estiramientos finales, segundos de trabajo, músculos,
+    material, rango de reps objetivo).
     Úsala para nombres exactos de días y ejercicios."""
     return await _run(q.get_plan())
 

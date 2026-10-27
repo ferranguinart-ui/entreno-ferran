@@ -14,6 +14,7 @@ from __future__ import annotations
 from functools import lru_cache
 from itertools import product
 
+JUMP_MARGIN = 4  # reps por encima del máximo que justifican subir tras una sola sesión
 PLATES = [(2.5, 4), (2.0, 4), (1.5, 4), (1.25, 5)]  # (kg, unidades)
 
 
@@ -100,7 +101,14 @@ def progression(history: list[dict], ex: dict) -> dict:
     if kg is None:
         return {"action": "start", "kg": None}
     lo, hi = ex.get("rep_min"), ex.get("rep_max")
-    if lo is None or hi is None or len(real) < 2:
+    if lo is None or hi is None:
+        return {"action": "hold", "kg": kg}
+    # Muy sobrado (máximo + JUMP_MARGIN en todas las rondas): subir ya, sin esperar otra sesión.
+    if len(real[0]["reps"]) >= 2 and _all_at_least(real[0]["reps"], hi + JUMP_MARGIN):
+        up = step_load(kg, eq, 1)
+        if up > kg:
+            return {"action": "up", "kg": up, "from": kg}
+    if len(real) < 2:
         return {"action": "hold", "kg": kg}
     a, b = real[0], real[1]
     same_kg = b.get("kg") is not None and r2(a["kg"]) == r2(b["kg"])

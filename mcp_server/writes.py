@@ -95,7 +95,7 @@ def check_set(ex: dict, i: int, st: dict) -> tuple[int | None, float | None]:
 
 async def _day_exercises(day_id: int) -> list[dict]:
     return await db.fetch(
-        "select * from exercises where day_id = %s and block <> 'warmup' order by block = 'remate', sort_order",
+        "select * from exercises where day_id = %s and block in ('main', 'remate') order by block = 'remate', sort_order",
         day_id,
     )
 
