@@ -19,7 +19,7 @@ import {
 } from "./dash.js";
 
 const app = document.getElementById("app");
-const APP_VERSION = "19"; // = número de la caché en sw.js; se muestra en el inicio
+const APP_VERSION = "20"; // = número de la caché en sw.js; se muestra en el inicio
 const state = { boot: null, run: null, engine: null };
 
 const todayISO = () => new Date().toLocaleDateString("sv-SE"); // YYYY-MM-DD local
@@ -293,6 +293,24 @@ function weightCardHTML(weights) {
   </a>`;
 }
 
+/** Últimos entrenos (solo tablet/PC: en el móvil el inicio cabe sin scroll). */
+function recentHTML(sessions) {
+  if (!sessions?.length) return "";
+  const t = todayISO();
+  const ago = (iso) => {
+    const d = Math.round((new Date(t + "T12:00:00") - new Date(iso + "T12:00:00")) / 86400000);
+    return d === 0 ? "hoy" : d === 1 ? "ayer" : `hace ${d} días`;
+  };
+  const rows = sessions.slice(0, 4).map((x) => {
+    const iso = String(x.date).slice(0, 10);
+    const d = dayById(x.day_id);
+    return `<li style="--day: var(--d${x.day_id})"><i></i><span>${esc(d?.name || "Sesión")}</span><span class="muted small">${fmtDayLong(iso)} · ${ago(iso)}</span></li>`;
+  });
+  return `<section class="card recent" aria-label="Últimos entrenos">
+    <div class="row between"><strong>Últimos entrenos</strong><a class="muted small" href="#/history">Ver todo</a></div>
+    <ul>${rows.join("")}</ul></section>`;
+}
+
 function homeHTML(serverSessions, weights) {
   const pend = api.pendingCount();
   const known = Array.isArray(serverSessions);
@@ -347,6 +365,7 @@ function homeHTML(serverSessions, weights) {
       ${weightCardHTML(weights)}
       <h3 class="section-title">Otro día</h3>
       <div class="chips">${others.map(chip).join("")}</div>
+      ${recentHTML(known ? sessions : null)}
       <div class="muted small version">Entreno v${APP_VERSION}</div>
     </div>`;
 }
@@ -596,11 +615,12 @@ function annotate(steps, targets) {
   return steps;
 }
 /** Técnica: inicio y final (o una postura) del ejercicio. Tocar amplía/reduce. */
-function techniqueHTML(exId, name) {
+function techniqueHTML(exId, name, { inline = false } = {}) {
   if (!hasTechnique(exId)) return "";
   const box = (which, label) =>
     `<figure class="tq-box"><figcaption>${label}</figcaption>${techniqueSVG(exId, which, { label: name })}</figure>`;
   const imgs = techniqueKind(exId) === "hold" ? box("hold", "Posición") : box("start", "Inicio") + box("end", "Final");
+  if (inline) return `<div class="tq-pair ${techniqueKind(exId)}">${imgs}</div>`;
   return `<h4 class="tq-title">Técnica</h4>
     <button type="button" class="tq-pair ${techniqueKind(exId)}" aria-pressed="false" aria-label="Ampliar imágenes de técnica">${imgs}</button>`;
 }
@@ -649,6 +669,7 @@ function viewRun() {
         </div>
       </div>
       <div id="exinfo" class="instructions" role="button" tabindex="0" title="Toca para verlo entero"></div>
+      <div id="runtech" class="runtech" aria-hidden="true"></div>
       <div id="restlog" class="restlog" hidden>
         <span id="rlLabel" class="small"></span>
         <div class="rep-step">
@@ -736,6 +757,11 @@ function viewRun() {
     const exId = isRest ? step.nextExerciseId : step.exerciseId;
     mapCtx = { zones, exId, name: isRest ? step.nextName : step.name, mus, mus2, info: isRest ? step.nextInstructions : step.instructions };
     $("mapbtn").classList.toggle("has-tq", hasTechnique(exId));
+    // En tablet/PC la técnica se ve sin tocar nada (el CSS decide si se muestra).
+    if ($("runtech").dataset.ex !== String(exId)) {
+      $("runtech").dataset.ex = String(exId);
+      $("runtech").innerHTML = techniqueHTML(exId, mapCtx.name, { inline: true });
+    }
     $("mapbtn").setAttribute("aria-label", hasTechnique(exId) ? "Ver técnica y músculos" : "Ver los músculos en grande");
     $("exmus").textContent = (isRest ? (mus ? "Siguiente · " + mus : "") : mus) || step.note || "";
     // Peso del ejercicio en curso; en el descanso, el del siguiente ("prepara").

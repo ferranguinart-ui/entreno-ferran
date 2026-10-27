@@ -1028,6 +1028,7 @@ dialog.sheet::backdrop { background: #000a; -webkit-backdrop-filter: blur(6px); 
   .run .dial     { grid-area: digits; align-self: center; justify-self: center; margin: 0; }
   .run .exname   { grid-area: name; text-align: left; font-size: clamp(24px, 3vw, 40px); }
   .run .exmeta   { grid-area: mus; justify-content: flex-start; }
+  .run .restlog  { grid-area: info; justify-content: flex-start; text-align: left; }
   .run #extgt    { margin: 0; }
   .run .instructions { grid-area: info; text-align: left; font-size: clamp(15px, 1.4vw, 19px); min-height: 4.2em; margin: 0; -webkit-line-clamp: 6; }
   .run .next     { grid-area: next; text-align: left; margin: 0; }
@@ -1062,17 +1063,6 @@ dialog.sheet::backdrop { background: #000a; -webkit-backdrop-filter: blur(6px); 
   .pane { max-width: 480px; padding-top: 44px; }
   .pane.center { padding-top: 0; }
 
-  /* inicio ancho: semana + hoy arriba, días en 2 columnas, accesos en 4 */
-  .pane.home {
-    display: grid;
-    max-width: 920px;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: stretch;
-    gap: 16px;
-  }
-  .pane.home > :is(.home-top, .note, .section-title, .day-list, .nav-grid, .version) { grid-column: 1 / -1; }
-  .home .day-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-  .home .nav-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 
   /* dashboard ancho: KPIs en 4, peso + cintura, constancia y fuerza en rejilla */
   .pane.dash {
@@ -1126,7 +1116,49 @@ dialog.sheet::backdrop { background: #000a; -webkit-backdrop-filter: blur(6px); 
 .tab.on .ico { color: var(--c-work); }
 .tab:focus-visible { outline: 2px solid var(--c-work); outline-offset: 2px; }
 body.has-tabs .pane { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
-@media (min-width: 900px) { .tabbar { left: 50%; right: auto; transform: translateX(-50%); width: 560px; border: 1px solid var(--glass-line); border-bottom: 0; border-radius: 18px 18px 0 0; } }
+/* Tablet: barra compacta y centrada, flotando. */
+@media (min-width: 700px) {
+  .tabbar {
+    left: 50%; right: auto; bottom: calc(14px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+    width: 460px; padding: 6px; border: 1px solid var(--glass-line); border-radius: 22px;
+    box-shadow: 0 10px 30px #0008;
+  }
+  body.has-tabs .pane { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
+}
+/* PC (ratón): menú lateral a la izquierda, a toda altura. */
+@media (min-width: 1100px) and (pointer: fine) {
+  .tabbar {
+    top: 0; bottom: 0; left: 0; transform: none; width: 96px; border-radius: 0;
+    grid-template-columns: 1fr; grid-auto-rows: 72px; align-content: start; gap: 8px; padding-top: 40px;
+    padding: 16px 10px; border: 0; border-right: 1px solid var(--glass-line); box-shadow: none;
+  }
+  body.has-tabs #app { padding-left: 96px; }
+  body.has-tabs .pane { padding-bottom: 40px; }
+}
+
+/* -------------------- inicio en tablet y PC: dos columnas -------------------- */
+@media (min-width: 700px) {
+  .pane.home {
+    display: grid; max-width: 920px; gap: 16px; align-items: start;
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+    grid-template-areas: "top top" "note note" "today week" "today weight" "otitle recent" "chips recent" ". recent" "ver ver";
+  }
+  .home .home-top { grid-area: top; }
+  .home .note { grid-area: note; }
+  .home .today { grid-area: today; align-self: stretch; justify-content: space-between; gap: 10px; }
+  .home .today .today-name { font-size: 30px; }
+  .home .week { grid-area: week; }
+  .home .wcard { grid-area: weight; align-self: stretch; }
+  .home .section-title { grid-area: otitle; }
+  .home .chips { grid-area: chips; }
+  .home .version { grid-area: ver; }
+  .home .recent { grid-area: recent; display: flex; }
+}
+.recent { display: none; flex-direction: column; gap: 10px; }
+.recent a { text-decoration: none; }
+.recent ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.recent li { display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 10px; }
+.recent li i { width: 10px; height: 10px; border-radius: 50%; background: var(--day); }
 
 /* -------------------- inicio: fecha, peso, otros días -------------------- */
 .home-top { display: flex; flex-direction: column; gap: 2px; }
@@ -1187,4 +1219,25 @@ circle.tq-body { stroke: none; }
   content: "Técnica"; position: absolute; left: 50%; bottom: -6px; transform: translateX(-50%);
   padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: 0.02em;
   color: var(--c-ink); background: var(--phase); white-space: nowrap; pointer-events: none;
+}
+
+
+/* -------------------- entreno en tablet/PC: técnica a la vista -------------------- */
+.runtech { display: none; }
+@media (orientation: landscape) and (min-width: 900px) and (min-height: 600px) {
+  .pane.run { grid-template-areas: "top top" "digits name" "digits mus" "digits tech" "digits info" "digits next" "digits ctrl" "bar bar" "exit exit"; }
+  .runtech { display: block; grid-area: tech; }
+  .runtech:empty { display: none; }
+  .runtech .tq-pair { cursor: default; max-width: 520px; }
+  .runtech .tq { max-height: 22dvh; }
+  .run .instructions { -webkit-line-clamp: 3; min-height: 0; }
+  .run .mapbtn.has-tq::after { display: none; } /* la técnica ya está a la vista */
+}
+@media (orientation: portrait) and (min-width: 700px) and (min-height: 1150px) {
+  .pane.run { --dh: 17.5dvh; row-gap: 8px; }
+  .pane.run > .runtech { display: block; width: 100%; max-width: 400px; margin: 0 auto; }
+  .runtech:empty { display: none; }
+  .runtech .tq-pair { cursor: default; }
+  .runtech .tq { max-height: 18dvh; }
+  .run .mapbtn.has-tq::after { display: none; }
 }
