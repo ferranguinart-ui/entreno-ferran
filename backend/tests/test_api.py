@@ -252,3 +252,20 @@ def test_records_max_kg_and_reps_per_kg(auth_client):
 
 def test_records_requires_auth(client):
     assert client.get("/api/records?day_id=1").status_code == 401
+
+
+# ------------------- mismo ejercicio en dos días (por nombre) -------------------
+def test_last_logs_y_records_comparten_historial_por_nombre(auth_client):
+    """'Crunch con peso al pecho' está en HIIT (22) y en Piernas (43): lo hecho
+    en HIIT cuenta para Piernas (y al revés)."""
+    c = auth_client
+    s = c.post("/api/sessions", json={"day_id": 2, "date": "2026-08-20", "rounds_planned": 3}).json()["id"]
+    c.post(f"/api/sessions/{s}/logs", json={"logs": [
+        {"exercise_id": 22, "round_number": 1, "reps": 20, "weight_kg": 8},
+        {"exercise_id": 22, "round_number": 2, "reps": 19, "weight_kg": 8},
+    ]})
+    last = c.get("/api/last_logs?day_id=4").json()
+    assert last["43"][0]["kg"] == 8.0
+    assert [r["reps"] for r in last["43"][0]["rounds"]] == [20, 19]
+    rec = c.get("/api/records?day_id=4").json()
+    assert rec["43"]["max_kg"] == 8.0

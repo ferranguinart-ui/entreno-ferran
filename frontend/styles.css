@@ -697,6 +697,10 @@ select.kg {
 .hoy-kg { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; text-align: right; flex: none; }
 .hoy-plates { white-space: nowrap; font-weight: 600; }
 .hoy-kg b { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.kgstep { display: flex; align-items: center; gap: 8px; }
+.kgstep b { min-width: 64px; text-align: center; }
+.kgstep .round { width: 36px; height: 36px; touch-action: manipulation; }
+.kgstep .round .ico { width: 16px; height: 16px; }
 .badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--glass); border: 1px solid var(--glass-line); color: var(--muted); white-space: nowrap; }
 .badge.up { color: var(--fg); border-color: var(--c-work); background: color-mix(in srgb, var(--c-work) 18%, transparent); }
 .badge.down { color: var(--fg); border-color: var(--c-warm); background: color-mix(in srgb, var(--c-warm) 18%, transparent); }

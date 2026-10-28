@@ -9,7 +9,7 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import db
-from progression import plates_text, progression
+from progression import plates_text, progression, starter_kg
 
 TZ = ZoneInfo("Europe/Madrid")
 WEEK_GOAL = 4          # sesiones (días distintos) por semana, igual que la app
@@ -250,26 +250,28 @@ async def get_sessions(from_date: str | None, to_date: str | None, day: str | No
 
 # ------------------------------- hoy toca ------------------------------------
 async def _history(uid: str, day_id: int, limit: int = 6) -> dict[int, list[dict]]:
-    """Mismo criterio que /api/last_logs: últimas sesiones con algo apuntado por ejercicio."""
+    """Mismo criterio que /api/last_logs: últimas sesiones con algo apuntado por ejercicio
+    (por nombre: un ejercicio que está en varios días comparte historial)."""
     rows = await db.fetch(
         """
         with ses as (
-          select s.id, s.date, s.is_deload, s.created_at, sl.exercise_id,
-                 dense_rank() over (partition by sl.exercise_id
+          select s.id, s.date, s.is_deload, s.created_at, e.id as exercise_id, sl.exercise_id as src_id,
+                 dense_rank() over (partition by e.id
                                     order by s.date desc, s.created_at desc) as rk
           from sessions s
           join session_logs sl on sl.session_id = s.id
-          join exercises e on e.id = sl.exercise_id
-          where s.user_id = %s and e.day_id = %s
+          join exercises src on src.id = sl.exercise_id
+          join exercises e on lower(e.name) = lower(src.name) and e.day_id = %s
+          where s.user_id = %s
             and (sl.reps is not null or sl.weight_kg is not null)
-          group by s.id, s.date, s.is_deload, s.created_at, sl.exercise_id
+          group by s.id, s.date, s.is_deload, s.created_at, e.id, sl.exercise_id
         )
         select ses.exercise_id, ses.date, ses.is_deload, ses.rk, sl.round_number, sl.reps, sl.weight_kg
-        from ses join session_logs sl on sl.session_id = ses.id and sl.exercise_id = ses.exercise_id
+        from ses join session_logs sl on sl.session_id = ses.id and sl.exercise_id = ses.src_id
         where ses.rk <= %s
         order by ses.exercise_id, ses.rk, sl.round_number
         """,
-        uid, day_id, limit,
+        day_id, uid, limit,
     )
     out: dict[int, list[dict]] = {}
     for r in rows:
@@ -286,7 +288,7 @@ async def _history(uid: str, day_id: int, limit: int = 6) -> dict[int, list[dict
 
 
 ACTION_TEXT = {
-    "start": "sin historial con peso: elegir un peso con el que llegar al rango",
+    "start": "sin historial con peso: kg sugerido de partida (suggested), ajustar para llegar al rango",
     "hold": "mantener el peso",
     "up": "subir de peso",
     "down": "bajar de peso",
@@ -305,6 +307,8 @@ async def get_targets(day: str) -> dict:
     for e in exs:
         h = hist.get(e["id"], [])
         p = progression(h, e)
+        if p["action"] == "start" and p["kg"] is None and starter_kg(e) is not None:
+            p = {**p, "kg": starter_kg(e), "suggested": True}
         it = {"exercise": e["name"], "equipment": e["equipment"], **p, "advice": ACTION_TEXT[p["action"]]}
         if e["rep_min"] is not None:
             it["rep_range"] = [e["rep_min"], e["rep_max"]]

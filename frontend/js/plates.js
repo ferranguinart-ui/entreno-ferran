@@ -113,6 +113,21 @@ export function progression(history, ex) {
   return { action: "hold", kg };
 }
 
+// Peso de partida cuando un ejercicio aún no tiene historial con kg: un punto
+// prudente para llegar al rango de reps (luego la progresión lo ajusta sola).
+// Por id del plan; si no, por material. Siempre montable con los discos.
+const STARTER = { 30: 10, 31: 12, 32: 8, 33: 5, 34: 6 };
+const STARTER_EQ = { pair: 5, single: 8, bar: 8 };
+
+/** kg sugerido de partida (null en peso corporal). */
+export function starterKg(ex) {
+  const eq = ex.equipment;
+  if (!eq || eq === "bodyweight") return null;
+  const want = STARTER[ex.id] ?? STARTER_EQ[eq];
+  const o = loadOptions(eq);
+  return o.reduce((best, v) => (Math.abs(v - want) < Math.abs(best - want) ? v : best), o[0]);
+}
+
 /** "Hoy toca" de cada ejercicio a partir de /api/last_logs ({exId: [sesiones, más reciente primero]}).
  *  → {exId: {equipment, rep_min, rep_max, action, kg, from, plates, last:{date,kg,reps}|null}} */
 export function targetsFor(exercises, lastLogs) {
@@ -124,7 +139,8 @@ export function targetsFor(exercises, lastLogs) {
       deload: h.deload,
       date: h.date,
     }));
-    const p = progression(hist, ex);
+    let p = progression(hist, ex);
+    if (p.action === "start" && p.kg == null && starterKg(ex) != null) p = { ...p, kg: starterKg(ex), suggested: true };
     const l = hist[0];
     out[ex.id] = {
       equipment: ex.equipment,

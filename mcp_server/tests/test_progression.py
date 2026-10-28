@@ -91,3 +91,11 @@ def test_subida_rapida_muy_por_encima():
 
 def test_subida_rapida_necesita_dos_rondas():
     assert progression([ses(8, [24])], EX) == {"action": "hold", "kg": 8}
+
+
+def test_starter_kg_igual_que_la_app():
+    from progression import starter_kg
+    assert starter_kg({"id": 30, "equipment": "single"}) == 10
+    assert starter_kg({"id": 33, "equipment": "pair"}) == 5
+    assert starter_kg({"id": 99, "equipment": "bar"}) == 8
+    assert starter_kg({"id": 99, "equipment": "bodyweight"}) is None

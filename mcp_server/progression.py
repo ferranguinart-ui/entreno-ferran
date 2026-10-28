@@ -121,3 +121,16 @@ def progression(history: list[dict], ex: dict) -> dict:
         if down < kg:
             return {"action": "down", "kg": down, "from": kg}
     return {"action": "hold", "kg": kg}
+
+
+# Peso de partida sin historial con kg (igual que starterKg en plates.js).
+STARTER = {30: 10, 31: 12, 32: 8, 33: 5, 34: 6}
+STARTER_EQ = {"pair": 5, "single": 8, "bar": 8}
+
+
+def starter_kg(ex: dict) -> float | None:
+    eq = ex.get("equipment")
+    if not eq or eq == "bodyweight":
+        return None
+    want = STARTER.get(ex.get("id"), STARTER_EQ.get(eq))
+    return min(load_options(eq), key=lambda v: (abs(v - want), v))

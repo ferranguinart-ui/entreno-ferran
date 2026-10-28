@@ -1,7 +1,7 @@
 import { api } from "./api.js";
 import { buildSteps, TimerEngine, primaryLabel, readMuted, writeMuted, autopauseState, ACTIVE } from "./timer.js";
 import { dialText, ringFraction, changedIndices, beatAt } from "./fx.js";
-import { loadOptions, platesText, targetsFor, detectPRs } from "./plates.js";
+import { loadOptions, platesText, targetsFor, detectPRs, stepLoad } from "./plates.js";
 import { musclesFor, bodyMapSVG, bestView } from "./muscles.js";
 import { techniqueSVG, hasTechnique, techniqueKind } from "./technique.js";
 import { weekProgress, nextDayId, mondayISO, stepValue, holdInterval, groupByWeek } from "./stats.js";
@@ -19,7 +19,7 @@ import {
 } from "./dash.js";
 
 const app = document.getElementById("app");
-const APP_VERSION = "20"; // = número de la caché en sw.js; se muestra en el inicio
+const APP_VERSION = "21"; // = número de la caché en sw.js; se muestra en el inicio
 const state = { boot: null, run: null, engine: null };
 
 const todayISO = () => new Date().toLocaleDateString("sv-SE"); // YYYY-MM-DD local
@@ -448,9 +448,23 @@ const ACTION = {
   up: (t) => `<span class="badge up">↑ sube de ${kgLabel(t.from)}</span>`,
   down: (t) => `<span class="badge down">↓ baja de ${kgLabel(t.from)}</span>`,
   hold: () => `<span class="badge">= mantén</span>`,
-  start: () => `<span class="badge">elige peso</span>`,
+  start: (t) => `<span class="badge">${t.suggested ? "sugerido · ajústalo" : "elige peso"}</span>`,
 };
-function hoyTocaHTML(day, targets) {
+/** Hoy toca con lo que Ferran ha ajustado a mano antes de empezar (plan: exId → kg). */
+function withPlan(targets, plan, day) {
+  if (!targets) return targets;
+  const out = { ...targets };
+  for (const [id, kg] of Object.entries(plan || {})) {
+    const t = out[id];
+    const e = day.exercises.find((x) => String(x.id) === id);
+    if (!t || !e || kg === t.kg) continue;
+    // Elegido a mano: ese es el peso de hoy (sin flecha de subir/bajar).
+    out[id] = { ...t, kg, plates: platesText(kg, e.equipment), action: "hold", from: undefined, suggested: false, manual: true };
+  }
+  return out;
+}
+function hoyTocaHTML(day, rawTargets, plan = {}) {
+  const targets = withPlan(rawTargets, plan, day);
   const exs = [...mainExercises(day), ...remateExercises(day)];
   const w = exs.filter(weighted);
   const bw = exs.filter((e) => !weighted(e));
@@ -464,10 +478,15 @@ function hoyTocaHTML(day, targets) {
             <span class="muted small">${t.rep_min ? `${t.rep_min}–${t.rep_max} reps` : "sin rango de reps"}${
           t.last ? ` · última: ${kgLabel(t.last.kg)}${t.last.reps.length ? " × " + t.last.reps.join("/") : ""}` : ""
         }</span></div>
-          <div class="hoy-kg"><b>${t.kg == null ? "—" : kgLabel(t.kg)}</b>
+          <div class="hoy-kg">
+            <div class="kgstep">
+              <button type="button" class="glass round" data-kgstep="-1" data-ex="${e.id}" aria-label="Menos peso en ${esc(e.name)}">${ICON.minus}</button>
+              <b aria-live="polite">${t.kg == null ? "—" : kgLabel(t.kg)}</b>
+              <button type="button" class="glass round" data-kgstep="1" data-ex="${e.id}" aria-label="Más peso en ${esc(e.name)}">${ICON.plus}</button>
+            </div>
             <span class="muted small">${t.kg == null ? "apúntalo hoy" : UNIT[e.equipment] || ""}</span>
             ${t.plates ? `<span class="small hoy-plates">${t.plates}</span>` : ""}
-            ${(ACTION[t.action] || ACTION.hold)(t)}</div>
+            ${t.manual ? `<span class="badge">ajustado</span>` : (ACTION[t.action] || ACTION.hold)(t)}</div>
         </div>`;
       })
       .join("")}
@@ -507,11 +526,13 @@ function viewSetup(dayId) {
     });
   };
 
-  const targetsReady = loadTargets(day);
-  targetsReady.then((t) => {
+  const plan = {}; // kg elegidos a mano hoy (exId → kg)
+  const paintHoy = () => {
     const box = document.getElementById("hoy");
-    if (box && location.hash === `#/setup/${day.id}`) box.innerHTML = hoyTocaHTML(day, t);
-  });
+    if (box && location.hash === `#/setup/${day.id}`) box.innerHTML = hoyTocaHTML(day, state.targets[day.id], plan);
+  };
+  const targetsReady = loadTargets(day);
+  targetsReady.then(paintHoy);
   const draw = () => {
     const shown = deload ? day.rounds_deload : rounds;
     h(`
@@ -530,7 +551,7 @@ function viewSetup(dayId) {
         </div>
         <div class="card col gap hoy">
           <div class="row between"><strong>Hoy toca</strong><span class="muted small">peso de discos</span></div>
-          <div id="hoy">${hoyTocaHTML(day, state.targets[day.id])}</div>
+          <div id="hoy">${hoyTocaHTML(day, state.targets[day.id], plan)}</div>
         </div>
         <div class="card col gap ap">
           <label class="switch-row">
@@ -554,6 +575,18 @@ function viewSetup(dayId) {
     document.getElementById("minus").onclick = () => { rounds = Math.max(day.rounds_min, rounds - 1); draw(); };
     document.getElementById("plus").onclick = () => { rounds = Math.min(day.rounds_max, rounds + 1); draw(); };
     document.getElementById("deload").onchange = (e) => { deload = e.target.checked; draw(); };
+    // − / + del peso: solo pesos montables con los discos.
+    document.getElementById("hoy").onclick = (ev) => {
+      const b = ev.target.closest("[data-kgstep]");
+      if (!b) return;
+      const e = day.exercises.find((x) => x.id === +b.dataset.ex);
+      const t = state.targets[day.id]?.[e.id];
+      const cur = plan[e.id] ?? t?.kg ?? null;
+      const next = stepLoad(cur, e.equipment, +b.dataset.kgstep);
+      if (next == null) return;
+      plan[e.id] = next;
+      paintHoy();
+    };
     const st = document.getElementById("stretch");
     if (st) st.onchange = (e) => { stretch = e.target.checked; };
     paintAutopause();
@@ -570,7 +603,7 @@ function viewSetup(dayId) {
         isDeload: deload,
         date: todayISO(),
         source: "timer",
-        targets: state.targets[day.id] || null,
+        targets: withPlan(state.targets[day.id], plan, day) || null,
         lastLogs: state.lastLogs[day.id] || {},
         roundLog: {}, // exId → {ronda: reps} apuntadas en el descanso
         stretch,
@@ -1097,7 +1130,10 @@ const exerciseLog = (e, dayId, rounds, target, last, done) => {
     target?.rep_min ? `objetivo ${target.rep_min}–${target.rep_max}` : "",
     last ? `última vez: ${w ? kgLabel(last.kg) + " × " : ""}${last.rounds.map((x) => x.reps ?? "—").join("/")}` : "",
   ].filter(Boolean);
-  return `<div class="card rep-card" style="--day: var(--d${dayId})" data-ex="${e.id}" data-eq="${e.equipment || ""}">
+  // Peso sugerido (sin historial y sin confirmar en la preparación): solo se guarda
+  // en las rondas con reps, para que una suposición no pase a ser "el último peso".
+  const sug = target?.suggested && !target?.manual ? ' data-sug="1"' : "";
+  return `<div class="card rep-card" style="--day: var(--d${dayId})" data-ex="${e.id}" data-eq="${e.equipment || ""}"${sug}>
     <div class="rep-info">
       <strong>${esc(e.name)}</strong>
       <span class="muted small">${tags.join(" · ") || esc(e.muscle_primary || "")}</span>
@@ -1249,6 +1285,7 @@ async function viewLog() {
           const reps = row.querySelector("input.reps").value;
           const kg = row.querySelector("select.kg")?.value ?? "";
           if (reps === "" && kg === "") continue; // nada apuntado en esta ronda
+          if (reps === "" && card.dataset.sug) continue; // peso solo sugerido y sin reps: no se guarda
           logs.push({
             exercise_id: +card.dataset.ex,
             round_number: +row.dataset.round,

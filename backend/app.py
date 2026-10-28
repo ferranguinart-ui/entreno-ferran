@@ -205,28 +205,30 @@ async def prefill(day_id: int, user: str = Depends(current_user)):
 @app.get("/api/last_logs")
 async def last_logs(day_id: int, limit: int = 6, user: str = Depends(current_user)):
     """Historial por ejercicio del día: últimas `limit` sesiones con algo apuntado,
-    de más reciente a más antigua, con kg y reps de cada ronda."""
+    de más reciente a más antigua, con kg y reps de cada ronda. Un ejercicio que
+    está en varios días (mismo nombre: crunch, sentadillas) comparte historial."""
     rows = await db.fetch(
         """
         with ses as (
-          select s.id, s.date, s.is_deload, s.created_at, sl.exercise_id,
-                 dense_rank() over (partition by sl.exercise_id
+          select s.id, s.date, s.is_deload, s.created_at, e.id as exercise_id, sl.exercise_id as src_id,
+                 dense_rank() over (partition by e.id
                                     order by s.date desc, s.created_at desc) as rk
           from sessions s
           join session_logs sl on sl.session_id = s.id
-          join exercises e on e.id = sl.exercise_id
-          where s.user_id = %s and e.day_id = %s
+          join exercises src on src.id = sl.exercise_id
+          join exercises e on lower(e.name) = lower(src.name) and e.day_id = %s
+          where s.user_id = %s
             and (sl.reps is not null or sl.weight_kg is not null)
-          group by s.id, s.date, s.is_deload, s.created_at, sl.exercise_id
+          group by s.id, s.date, s.is_deload, s.created_at, e.id, sl.exercise_id
         )
         select ses.exercise_id, ses.date, ses.is_deload, ses.rk,
                sl.round_number, sl.reps, sl.weight_kg
         from ses
-        join session_logs sl on sl.session_id = ses.id and sl.exercise_id = ses.exercise_id
+        join session_logs sl on sl.session_id = ses.id and sl.exercise_id = ses.src_id
         where ses.rk <= %s
         order by ses.exercise_id, ses.rk, sl.round_number
         """,
-        user, day_id, limit,
+        day_id, user, limit,
     )
     out: dict[str, list] = {}
     for r in rows:
@@ -247,18 +249,20 @@ async def last_logs(day_id: int, limit: int = 6, user: str = Depends(current_use
 @app.get("/api/records")
 async def records(day_id: int, user: str = Depends(current_user)):
     """Mejores marcas de siempre por ejercicio del día: kg máximo y, para cada
-    peso, el máximo de reps en una ronda. Sin peso → clave "0"."""
+    peso, el máximo de reps en una ronda. Sin peso → clave "0". Por nombre de
+    ejercicio, como /api/last_logs (lo hecho en otro día también cuenta)."""
     rows = await db.fetch(
         """
-        select sl.exercise_id, sl.weight_kg, max(sl.reps) as reps
+        select e.id as exercise_id, sl.weight_kg, max(sl.reps) as reps
         from session_logs sl
         join sessions s on s.id = sl.session_id
-        join exercises e on e.id = sl.exercise_id
-        where s.user_id = %s and e.day_id = %s
+        join exercises src on src.id = sl.exercise_id
+        join exercises e on lower(e.name) = lower(src.name) and e.day_id = %s
+        where s.user_id = %s
           and (sl.reps is not null or sl.weight_kg is not null)
-        group by sl.exercise_id, sl.weight_kg
+        group by e.id, sl.weight_kg
         """,
-        user, day_id,
+        day_id, user,
     )
     out: dict[str, dict] = {}
     for r in rows:

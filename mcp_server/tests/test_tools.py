@@ -124,3 +124,20 @@ def test_health(db_url, monkeypatch):
 
     with TestClient(server.create_app()) as c:
         assert c.get("/health").json() == {"status": "ok", "db": "ok"}
+
+
+@pytest.mark.anyio
+async def test_targets_comparten_historial_por_nombre(pool):
+    """El crunch de HIIT (22) cuenta para el de Piernas (43)."""
+    import db
+    await db.execute(
+        "insert into sessions (id, user_id, day_id, date, rounds_completed, source) values "
+        "('10000000-0000-0000-0000-000000000009', '00000000-0000-0000-0000-000000000001', 2, current_date - 2, 3, 'timer')"
+    )
+    await db.execute(
+        "insert into session_logs (session_id, exercise_id, round_number, reps, weight_kg) values "
+        "('10000000-0000-0000-0000-000000000009', 22, 1, 15, 8), ('10000000-0000-0000-0000-000000000009', 22, 2, 14, 8)"
+    )
+    t = await ok("get_targets", {"day": "Piernas"})
+    crunch = next(x for x in t["targets"] if x["exercise"] == "Crunch con peso al pecho")
+    assert crunch["kg"] == 8.0 and crunch["last"]["reps"] == [15, 14]

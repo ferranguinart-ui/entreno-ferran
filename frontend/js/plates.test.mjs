@@ -169,3 +169,21 @@ test("progression: el salto rápido necesita al menos 2 rondas apuntadas", () =>
   const ex = { equipment: "pair", rep_min: 10, rep_max: 14 };
   assert.deepEqual(progression([ses(8, [24])], ex), { action: "hold", kg: 8 });
 });
+
+import { starterKg } from "./plates.js";
+
+test("starterKg: peso de partida sugerido cuando no hay historial (montable con los discos)", () => {
+  assert.equal(starterKg({ id: 30, equipment: "single" }), 10); // remo a una mano
+  assert.equal(starterKg({ id: 33, equipment: "pair" }), 5); // curl martillo, por mancuerna
+  assert.equal(starterKg({ id: 99, equipment: "bar" }), 8); // genérico por material
+  assert.equal(starterKg({ id: 99, equipment: "bodyweight" }), null);
+  for (const eq of ["pair", "single", "bar"]) assert.ok(loadOptions(eq).includes(starterKg({ id: 99, equipment: eq })));
+});
+
+test("targetsFor: sin historial con peso → kg sugerido (suggested) con sus discos", () => {
+  const t = targetsFor([{ id: 30, equipment: "single", rep_min: 10, rep_max: 14 }], {});
+  assert.equal(t[30].action, "start");
+  assert.equal(t[30].kg, 10);
+  assert.equal(t[30].suggested, true);
+  assert.equal(t[30].plates, "por lado: 2 × 2,5");
+});
